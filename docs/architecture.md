@@ -9,7 +9,7 @@ Target environment: Windows 10/11, PulseSync v3.0.3-beta, Yandex Music Desktop 5
 - `src/addon.ts`: official PulseSync SDK addon lifecycle and queue consumer.
 - `addon.config.mjs`: editable addon manifest source for the PulseSync project editor.
 - `vite.config.ts`: official SDK Vite addon build.
-- `scripts/`: development build/delivery scripts copied from the supplied official example template.
+- `scripts/`: project-specific development build and delivery scripts following the supplied template's workflow.
 
 ## Flow
 
