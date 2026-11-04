@@ -1,48 +1,56 @@
 # PulseRedeem
 
-PulseSync addon + local Node.js queue service for Twitch Channel Points → Yandex Music.
+PulseSync addon: Twitch Channel Points → Яндекс Музыка → очередь PulseSync. Аддон получает события Twitch напрямую и добавляет выбранные треки в конец очереди плеера. Отдельный Node.js-сервер, локальные порты и веб-панель не нужны.
 
-## Requirements
+## Что потребуется
 
-- Windows 10/11
-- Node.js 22.12 or newer
-- PulseSync with the project editor and a compatible WebHost/Runtime
-- Yandex Music Desktop with PulseSync integration enabled
+- Windows 10/11 и PulseSync с совместимым WebHost/Runtime.
+- Яндекс Музыка Desktop с работающим PulseSync.
+- Node.js 22.12+ только для сборки/разработки аддона.
+- Twitch Developer Application, зарегистрированное как **Public client**.
 
-## Open the addon project in PulseSync
+## Установка
 
-1. Clone this repository and check out the PR branch (or download the branch ZIP).
-2. In the project root run `npm install`.
-3. Start the local queue service in a separate terminal: `npm start`.
-4. In PulseSync open the addons menu (⋯) → **Open project** and select this repository's root folder (the folder containing both `addon.config.mjs` and `addon/`).
-5. Run `npm run dev` in the project folder. The development script builds the addon, copies it to the PulseSync addons directory and asks the client to reload it when supported.
+1. Склонируй репозиторий и открой корневую папку проекта в PulseSync через меню аддонов → **Open project**.
+2. В корне проекта выполни **npm install**.
+3. Выполни **npm run dev** для сборки и установки аддона в PulseSync. Для ручной установки используй **npm run build**, затем **npm run sync**.
+4. В настройках PulseRedeem укажи **Twitch Client ID**. Client Secret не нужен.
+5. При необходимости укажи **Reward ID**. Если поле пустое, аддон слушает все пользовательские награды Channel Points.
+6. Нажми кнопку **Подключить Twitch** в панели PulseSync. В уведомлении появятся код и ссылка активации Twitch. Подтверди доступ в браузере.
+7. Создай/отредактируй награду Channel Points с полем ввода текста и попроси зрителя вставлять ссылку на трек Яндекс Музыки.
 
-For manual installation, run `npm run build` followed by `npm run sync`. The addon is installed under `%APPDATA%\\PulseSync\\addons\\pulseredeem` by default.
+## Настройка приложения Twitch
 
-## Current integration
+В Twitch Developer Console создай приложение и выбери тип клиента **Public** (без client secret). Скопируй Client ID в настройки аддона. PulseRedeem запрашивает только scope **channel:read:redemptions**.
 
-The addon polls the loopback bridge at `http://127.0.0.1:3037`. For each queued request it calls the SDK's `api.client.addTrackToQueueById(trackId, { albumId, position: 'last' })` and acknowledges delivery. Failed requests are returned to the queue.
+Используется OAuth Device Code Flow: аддон показывает одноразовый код, а подтверждение происходит на странице Twitch. Токены хранятся в локальном хранилище PulseSync, а не в файлах проекта. Refresh token Device Flow одноразовый и ротируется при обновлении — новая версия сохраняется сразу.
 
-The addon metadata is defined in `addon.config.mjs`; the required `addon/` directory contains `handleEvents.json` and static assets. Vite's official `addonPlugin` generates PulseSync's `metadata.json`, script and styles. The entrypoint follows the template convention `src/main.ts`. The client editor can edit the metadata in `addon.config.mjs`.
+Аддон проверяет токен при запуске и далее раз в час через Twitch /oauth2/validate. Срок жизни не зашит в код: используется значение expires_in, которое сообщает Twitch; токен обновляется, когда до истечения остаётся не больше часа. Если пользователь отзовёт доступ или refresh token станет недействительным, подключи Twitch заново.
 
-## Local queue service
+## Формат заявки
 
-`npm start` starts the dashboard/API at http://127.0.0.1:3037. Use the dashboard's test request form to validate URL parsing and local queue flow. The dev endpoint is loopback-only and must not be exposed publicly.
+В поле ввода награды нужно отправить прямую ссылку на трек, например:
 
-At this stage Twitch OAuth/EventSub is not yet connected. Test queue insertion in the installed PulseSync version before enabling unattended redemptions. The bridge is a development integration and does not yet provide crash recovery for a request left in `sending`.
+https://music.yandex.ru/album/123456/track/789012
 
-## Commands
+Поддерживаются домены music.yandex.ru, music.yandex.com, music.yandex.kz и music.yandex.by. Ссылка должна вести на конкретный трек, а не на альбом или плейлист.
 
-| Command | Description |
+После получения погашения аддон проверяет ссылку и вызывает SDK PulseSync addTrackToQueueById(trackId, { albumId, position: 'last' }). Повторные EventSub-события с тем же redemption ID отсекаются.
+
+## Команды разработчика
+
+| Команда | Назначение |
 | --- | --- |
-| `npm start` | Start local queue service |
-| `npm run dev` | Watch, build and deliver addon to PulseSync |
-| `npm run build` | Production addon build into `dist/pulseredeem` |
-| `npm run sync` | Copy build to PulseSync addon directory |
-| `npm test` | Run unit tests |
+| npm run dev | Сборка и доставка аддона в PulseSync в режиме разработки |
+| npm run build | Production-сборка |
+| npm run sync | Копирование собранного аддона в каталог PulseSync |
+| npm test | Unit-тесты |
 
-## Notes
+npm start отсутствует намеренно: PulseRedeem работает внутри PulseSync.
 
-- Keep `.env`, local queue data and user settings out of version control.
-- The addon requires `net-per-addon-v1` and allows requests only to the loopback bridge.
-- SDK 0.18.0 queue method signature is based on the supplied SDK archive. Compatibility with PulseSync v3.0.3-beta still needs a runtime smoke test.
+## Ограничения текущей версии
+
+- Веб-панели и отдельной очереди заявок нет: трек добавляется сразу в очередь PulseSync.
+- Аддон не меняет статус погашения награды на Fulfilled автоматически.
+- Нужна проверка WebSocket/EventSub в установленной версии PulseSync: SDK 0.18.0 документирует HTTP-сетевые запросы, но не предоставляет отдельный WebSocket-метод. Используется стандартный WebSocket API среды WebHost; совместимость CSP/сетевых разрешений должна быть подтверждена smoke-тестом.
+- Совместимость SDK 0.18.0 с конкретной версией PulseSync нужно проверить в самом приложении.
