@@ -9,7 +9,6 @@
     "server:dev": "node --watch src/server.js",
     "dev": "node ./scripts/dev-build.mjs",
     "build": "vite build",
-    "build:modules": "node ./scripts/module-compile.mjs",
     "sync": "node ./scripts/sync-addon.mjs",
     "build:sync": "npm run build && npm run sync",
     "test": "node --test"
@@ -21,8 +20,6 @@
     "@types/node": "26.6.6",
     "@types/react": "19.3.0",
     "@vitejs/plugin-react": "6.1.2",
-    "esbuild": "0.28.1",
-    "oxfmt": "0.75.0",
     "react": "19.3.1",
     "typescript": "7.0.2",
     "vite": "8.3.5"
