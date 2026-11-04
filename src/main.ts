@@ -237,12 +237,10 @@ function attachSocket(api: any, runtime: Runtime, socket: WebSocket, token: Twit
         const reconnectUrl = message.payload?.session?.reconnect_url
         if (reconnectUrl && !runtime.stopped) {
           const previous = runtime.socket
+          if (previous) previous.onclose = null
           const next = new WebSocket(String(reconnectUrl))
           runtime.socket = next
-          next.onopen = () => {
-            if (previous) previous.onclose = null
-            previous?.close()
-          }
+          next.onopen = () => previous?.close()
           attachSocket(api, runtime, next, token, broadcasterId, false)
         }
         return
