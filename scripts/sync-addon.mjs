@@ -25,12 +25,35 @@ export async function syncAddon(sourceDir = process.env.PULSESYNC_ADDON_OUT_DIR 
   await fs.cp(sourceDir, staging, { recursive: true, force: true })
   try { await fs.copyFile(path.join(target, 'pulsesync.settings.json'), path.join(staging, 'pulsesync.settings.json')) }
   catch (error) { if (error.code !== 'ENOENT') throw error }
+
   const backup = target + '.previous'
   await fs.rm(backup, { recursive: true, force: true })
-  try { await fs.rename(target, backup) } catch (error) { if (error.code !== 'ENOENT') throw error }
-  try { await fs.rename(staging, target) }
-  catch (error) { try { await fs.rename(backup, target) } catch {} throw error }
-  await fs.rm(backup, { recursive: true, force: true })
+  let replacedByRename = false
+  try {
+    await fs.rename(target, backup)
+    replacedByRename = true
+  } catch (error) {
+    if (error.code !== 'ENOENT' && error.code !== 'EBUSY' && error.code !== 'EPERM') throw error
+  }
+
+  try {
+    if (replacedByRename) {
+      await fs.rename(staging, target)
+      await fs.rm(backup, { recursive: true, force: true })
+    } else {
+      // PulseSync may hold the addon directory open on Windows. In that case,
+      // update its files in place instead of renaming the locked directory.
+      await fs.mkdir(target, { recursive: true })
+      await fs.cp(staging, target, { recursive: true, force: true })
+      await fs.rm(staging, { recursive: true, force: true })
+    }
+  } catch (error) {
+    if (replacedByRename) {
+      try { await fs.rename(backup, target) } catch {}
+    }
+    throw error
+  }
+
   let reload = 'not-available'
   try {
     const response = await fetch('http://127.0.0.1:2007/dev/addons/reload?directory=' + encodeURIComponent(addonConfig.directoryName), { method: 'POST', headers: { 'X-PulseSync-Addon-Dev': '1' }, signal: AbortSignal.timeout(2000) })
