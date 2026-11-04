@@ -1,5 +1,6 @@
 import path from 'node:path'
 import os from 'node:os'
+import { fileURLToPath } from 'node:url'
 import { promises as fs } from 'node:fs'
 import addonConfig from '../addon.config.mjs'
 
@@ -25,7 +26,7 @@ export async function syncAddon(sourceDir = process.env.PULSESYNC_ADDON_OUT_DIR 
   } catch (error) {
     if (error.code !== 'ENOENT') throw error
   }
-  const staging = path.join(root, `.pulseredeem-staging-${process.pid}`)
+  const staging = path.join(root, \`.pulseredeem-staging-\${process.pid}\`)
   await fs.rm(staging, { recursive: true, force: true })
   await fs.cp(sourceDir, staging, { recursive: true, force: true })
   try {
@@ -44,10 +45,10 @@ export async function syncAddon(sourceDir = process.env.PULSESYNC_ADDON_OUT_DIR 
     })
     reload = response.ok ? 'requested' : 'unsupported'
   } catch {}
-  console.log(`PulseRedeem installed to ${target} (client reload: ${reload})`)
+  console.log(\`PulseRedeem installed to \${target} (client reload: \${reload})\`)
   return target
 }
 
-if (import.meta.url === `file://${process.argv[1]?.replaceAll('\\\\', '/')}`) {
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   syncAddon().catch(error => { console.error(error); process.exitCode = 1 })
 }
