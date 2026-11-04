@@ -3,6 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.0.0" },
-  "scripts": { "start": "node src/server.js", "dev": "node --watch src/server.js", "test": "node --test" }
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test",
+    "inspect:sdk": "node scripts/inspect-sdk.mjs"
+  },
+  "dependencies": {
+    "@pulsesync/addon-sdk": "0.18.0"
+  },
+  "devDependencies": {
+    "@pulsesync/yamusic-types": "0.4.0"
+  }
 }
