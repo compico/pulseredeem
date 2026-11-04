@@ -14,7 +14,7 @@ PulseSync addon + local Node.js queue service for Twitch Channel Points → Yand
 1. Clone this repository and check out the PR branch (or download the branch ZIP).
 2. In the project root run `npm install`.
 3. Start the local queue service in a separate terminal: `npm start`.
-4. In PulseSync open the addons menu (⋯) → **Open project** and select this repository's root folder.
+4. In PulseSync open the addons menu (⋯) → **Open project** and select this repository's root folder (the folder containing both `addon.config.mjs` and `addon/`).
 5. Run `npm run dev` in the project folder. The development script builds the addon, copies it to the PulseSync addons directory and asks the client to reload it when supported.
 
 For manual installation, run `npm run build` followed by `npm run sync`. The addon is installed under `%APPDATA%\\PulseSync\\addons\\pulseredeem` by default.
@@ -23,7 +23,7 @@ For manual installation, run `npm run build` followed by `npm run sync`. The add
 
 The addon polls the loopback bridge at `http://127.0.0.1:3037`. For each queued request it calls the SDK's `api.client.addTrackToQueueById(trackId, { albumId, position: 'last' })` and acknowledges delivery. Failed requests are returned to the queue.
 
-The addon manifest is defined in `addon.config.mjs`; Vite's official `addonPlugin` generates PulseSync's `metadata.json`, script and styles. The client editor can edit the metadata in `addon.config.mjs`.
+The addon metadata is defined in `addon.config.mjs`; the required `addon/` directory contains `handleEvents.json` and static assets. Vite's official `addonPlugin` generates PulseSync's `metadata.json`, script and styles. The entrypoint follows the template convention `src/main.ts`. The client editor can edit the metadata in `addon.config.mjs`.
 
 ## Local queue service
 
