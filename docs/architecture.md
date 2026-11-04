@@ -1,11 +1,29 @@
 # Architecture
 
-Target environment: Windows 10/11, PulseSync v3.0.3-beta, Yandex Music Desktop 5.125.3, Node.js 22.
+Target environment: Windows 10/11, PulseSync v3.0.3-beta, Yandex Music Desktop 5.125.3, Node.js 22.12+.
 
-Data flow: Twitch Channel Points redemption → URL validation → durable FIFO queue → PulseSync addon bridge → Yandex Music player queue. The dashboard displays queue state and allows removal.
+## Components
 
-The exact PulseSync queue mutation API has not yet been verified for v3.0.3-beta. Do not guess method names or automate mouse/keyboard input as the primary integration. Inspect the installed SDK declarations and addon API first. Track metadata must also be resolved against the target Yandex Music client version; until then the UI must not fabricate artist/title data.
+- `src/server.js`: loopback-only local dashboard and queue HTTP API.
+- `src/queue-store.js`: durable JSON FIFO queue with per-user/queue limits.
+- `src/addon.ts`: official PulseSync SDK addon lifecycle and queue consumer.
+- `addon.config.mjs`: editable addon manifest source for the PulseSync project editor.
+- `vite.config.ts`: official SDK Vite addon build.
+- `scripts/`: development build/delivery scripts copied from the supplied official example template.
 
-Security: bind to 127.0.0.1 by default; never commit .env, OAuth tokens, client secrets, or session cookies. The development request endpoint is for loopback testing only and must be disabled/authenticated before exposing the service beyond localhost.
+## Flow
 
-Twitch reward fulfillment must happen only after a redemption has been durably stored. Invalid or over-limit requests should be cancelled to refund points.
+A future Twitch EventSub integration will validate a redeemed Yandex Music URL and add it to the local queue. The addon polls `GET /api/bridge/next`, invokes `api.client.addTrackToQueueById(trackId, { albumId, position: 'last' })`, then acknowledges the request. Failed requests return to `queued`.
+
+The bridge currently supports local test requests only. Twitch OAuth/EventSub is not yet implemented.
+
+## Runtime compatibility
+
+The method signature was verified in the user-provided `@pulsesync/addon-sdk@0.18.0` archive and its bundled `@pulsesync/yamusic-types@0.8.0`. The installed PulseSync v3.0.3-beta runtime still needs a smoke test. Do not mark automatic fulfilment production-ready until this test passes.
+
+## Security
+
+- Bind the local service to `127.0.0.1` by default.
+- Never commit OAuth tokens, client secrets, session cookies or `.env`.
+- Keep the dev request endpoint loopback-only.
+- Twitch reward fulfilment should happen only after a request is durably stored.
