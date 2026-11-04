@@ -9,8 +9,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node --test",
-    "inspect:sdk": "node scripts/inspect-sdk.mjs"
+    "test": "node --test"
   },
   "dependencies": {
     "@pulsesync/addon-sdk": "0.18.0"
