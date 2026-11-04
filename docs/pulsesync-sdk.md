@@ -21,7 +21,7 @@ await api.client.addTrackToQueueById(trackId, {
 
 The supplied `PulseSync-ExampleAddon` uses `addon.config.mjs`, `vite.config.ts`, `@pulsesync/addon-sdk/vite` and `addonPlugin()`. The build generates `metadata.json`, `script.js` and `script.css`. PulseSync's project editor can edit `addon.config.mjs`; the optional `addon.manifest.json` is not required for this project.
 
-The repository now follows that layout and copies the template's development-delivery scripts.
+The repository now follows that layout and implements a lightweight development build/delivery flow based on the template's documented workflow.
 
 ## Compatibility caveat
 
