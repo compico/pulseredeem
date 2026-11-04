@@ -283,7 +283,10 @@ async function startSession(api: any, runtime: Runtime) {
     const validated = await validateToken(api, stored)
     await connectEventSub(api, runtime)
     api.setInterval(() => {
-      void validateToken(api, stored).catch(async error => {
+      void (async () => {
+        const latest = await api.storage.get<TwitchToken>(AUTH_KEY)
+        if (latest?.accessToken) await validateToken(api, latest)
+      })().catch(async error => {
         api.logger.error('Periodic Twitch token validation failed', error)
         await api.notifications.error('Проверка Twitch не прошла. Возможно, нужно переподключить аккаунт.')
       })
