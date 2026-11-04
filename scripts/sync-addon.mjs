@@ -43,6 +43,9 @@ export async function syncAddon(sourceDir = process.env.PULSESYNC_ADDON_OUT_DIR 
       ...(addonConfig.image ? { image: addonConfig.image } : {}),
       ...(addonConfig.banner ? { banner: addonConfig.banner } : {}),
       tags: addonConfig.tags ?? [],
+      allowedUrls: addonConfig.allowedUrls ?? [],
+      supportedVersions: addonConfig.supportedVersions ?? [],
+      ...(addonConfig.requirements ? { requirements: addonConfig.requirements } : {}),
     }
     await fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2) + '\\n', 'utf8')
   }
