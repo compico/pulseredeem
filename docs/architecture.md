@@ -6,8 +6,9 @@ Target environment: Windows 10/11, PulseSync v3.0.3-beta, Yandex Music Desktop 5
 
 - `src/server.js`: loopback-only local dashboard and queue HTTP API.
 - `src/queue-store.js`: durable JSON FIFO queue with per-user/queue limits.
-- `src/main.tsx`: official PulseSync SDK addon lifecycle and queue consumer.
-- `addon.config.mjs`: editable addon manifest source for the PulseSync project editor.
+- `src/main.ts`: official PulseSync SDK addon lifecycle and queue consumer.
+- `addon.config.mjs`: editable addon metadata source for the PulseSync project editor.
+- `addon/`: required project asset/settings directory, including `handleEvents.json`.
 - `vite.config.ts`: official SDK Vite addon build.
 - `scripts/`: project-specific development build and delivery scripts following the supplied template's workflow.
 
