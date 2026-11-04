@@ -1,28 +1,26 @@
 # PulseSync SDK integration findings
 
-The user-provided SDK archive contains `@pulsesync/addon-sdk@0.18.0` and `@pulsesync/yamusic-types@0.8.0`.
+Проверено по предоставленному архиву @pulsesync/addon-sdk@0.18.0 и @pulsesync/yamusic-types@0.8.0.
 
 ## Queue API
 
-The addon's active lifecycle API exposes `api.client`. The type declarations define `addTrackToQueueById(trackId, options?)`, where the selector supports `albumId` and `position?: 'next' | 'last' | string`.
+SDK описывает addTrackToQueueById(trackId, options?), где selector поддерживает albumId и position?: 'next' | 'last' | string.
 
-The addon calls:
+    await api.client.addTrackToQueueById(trackId, {
+      albumId,
+      position: 'last',
+    })
 
-```ts
-await api.client.addTrackToQueueById(trackId, {
-  albumId,
-  position: 'last',
-})
-```
+## Runtime lifecycle и storage
 
-`last` requests appending at the end of the queue. The API is called only from the active addon's `start(api)` lifecycle, not at module import time.
+defineAddon() принимает start(api), а API lifecycle предоставляет signal, onCleanup, setTimeout, setInterval и listen. api.storage предоставляет асинхронные get/set/remove и используется для OAuth токенов и дедупликации redemption IDs.
 
-## Template and metadata
+api.net предоставляет HTTP fetch/json/text. В публичных типах SDK 0.18.0 отдельного WebSocket API нет.
 
-The supplied `PulseSync-ExampleAddon` uses `addon.config.mjs`, `vite.config.ts`, `@pulsesync/addon-sdk/vite` and `addonPlugin()`. The build generates `metadata.json`, `script.js` and `script.css`. PulseSync's project editor can edit `addon.config.mjs`; the optional `addon.manifest.json` is not required for this project.
+## Twitch transport
 
-The repository now follows that layout and implements a lightweight development build/delivery flow based on the template's documented workflow.
+Twitch EventSub WebSocket — исходящее соединение с wss://eventsub.wss.twitch.tv/ws; входящий локальный порт для этого не нужен. Реализация использует стандартный WebSocket API среды WebHost и добавляет WSS endpoint в allowedUrls. Фактическая доступность WebSocket/CSP в PulseSync должна быть проверена smoke-тестом.
 
-## Compatibility caveat
+## OAuth
 
-SDK documentation warns that new SDK features require compatible Runtime/WebHost versions and that the pre-1.0 API can change between minor releases. The installed PulseSync v3.0.3-beta must pass a queue insertion smoke test before this integration is considered verified.
+Для standalone desktop addon выбран Twitch OAuth Device Code Flow с Public Client: не нужен callback-сервер, redirect URI или client secret. Токены и ротация refresh token хранятся в api.storage. Токен валидируется через Twitch /oauth2/validate; срок жизни берётся из expires_in, а не задаётся константой.
