@@ -11,10 +11,21 @@ function defaultAddonsDir() {
 }
 
 export async function syncAddon(sourceDir = process.env.PULSESYNC_ADDON_OUT_DIR || path.resolve('dist', addonConfig.directoryName)) {
-  const metadata = JSON.parse(await fs.readFile(path.join(sourceDir, 'metadata.json'), 'utf8'))
-  if (metadata.type !== 'web-addon' || metadata.id !== addonConfig.id) throw new Error('Build output is not the expected PulseRedeem web addon')
   const root = path.resolve(process.env.PULSESYNC_ADDONS_DIR || defaultAddonsDir())
   const target = path.join(root, addonConfig.directoryName)
+  const resolvedSource = path.resolve(sourceDir)
+  const relativeSource = path.relative(target, resolvedSource)
+  if (relativeSource && !relativeSource.startsWith('..' + path.sep) && relativeSource !== '..' && !path.isAbsolute(relativeSource)) {
+    throw new Error(
+      'PulseRedeem source/build folder is inside the PulseSync addons directory. Move or clone the project to a separate folder (for example Documents\\GitHub\\pulseredeem), then run npm install and npm run dev there.'
+    )
+  }
+  if (resolvedSource === target) {
+    throw new Error('PulseRedeem source folder must not be the installed addon folder. Clone the project outside %APPDATA%\\PulseSync\\addons.')
+  }
+
+  const metadata = JSON.parse(await fs.readFile(path.join(resolvedSource, 'metadata.json'), 'utf8'))
+  if (metadata.type !== 'web-addon' || metadata.id !== addonConfig.id) throw new Error('Build output is not the expected PulseRedeem web addon')
   await fs.mkdir(root, { recursive: true })
   try {
     const installed = JSON.parse(await fs.readFile(path.join(target, 'metadata.json'), 'utf8'))
