@@ -11,41 +11,32 @@ function defaultAddonsDir() {
 }
 
 export async function syncAddon(sourceDir = process.env.PULSESYNC_ADDON_OUT_DIR || path.resolve('dist', addonConfig.directoryName)) {
-  const metadataPath = path.join(sourceDir, 'metadata.json')
-  const metadata = JSON.parse(await fs.readFile(metadataPath, 'utf8'))
+  const metadata = JSON.parse(await fs.readFile(path.join(sourceDir, 'metadata.json'), 'utf8'))
   if (metadata.type !== 'web-addon' || metadata.id !== addonConfig.id) throw new Error('Build output is not the expected PulseRedeem web addon')
   const root = path.resolve(process.env.PULSESYNC_ADDONS_DIR || defaultAddonsDir())
   const target = path.join(root, addonConfig.directoryName)
-  const settingsFile = 'pulsesync.settings.json'
   await fs.mkdir(root, { recursive: true })
   try {
     const installed = JSON.parse(await fs.readFile(path.join(target, 'metadata.json'), 'utf8'))
-    if (installed.installSource === 'store' && process.env.PULSESYNC_ALLOW_STORE_ADDON_OVERWRITE !== '1') {
-      throw new Error('Refusing to overwrite a store-managed addon. Choose another directoryName or explicitly set PULSESYNC_ALLOW_STORE_ADDON_OVERWRITE=1.')
-    }
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error
-  }
-  const staging = path.join(root, \`.pulseredeem-staging-\${process.pid}\`)
+    if (installed.installSource === 'store' && process.env.PULSESYNC_ALLOW_STORE_ADDON_OVERWRITE !== '1') throw new Error('Refusing to overwrite a store-managed addon.')
+  } catch (error) { if (error.code !== 'ENOENT') throw error }
+  const staging = path.join(root, '.pulseredeem-staging-' + process.pid)
   await fs.rm(staging, { recursive: true, force: true })
   await fs.cp(sourceDir, staging, { recursive: true, force: true })
-  try {
-    await fs.copyFile(path.join(target, settingsFile), path.join(staging, settingsFile))
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error
-  }
-  await fs.rm(target, { recursive: true, force: true })
-  await fs.rename(staging, target)
+  try { await fs.copyFile(path.join(target, 'pulsesync.settings.json'), path.join(staging, 'pulsesync.settings.json')) }
+  catch (error) { if (error.code !== 'ENOENT') throw error }
+  const backup = target + '.previous'
+  await fs.rm(backup, { recursive: true, force: true })
+  try { await fs.rename(target, backup) } catch (error) { if (error.code !== 'ENOENT') throw error }
+  try { await fs.rename(staging, target) }
+  catch (error) { try { await fs.rename(backup, target) } catch {} throw error }
+  await fs.rm(backup, { recursive: true, force: true })
   let reload = 'not-available'
   try {
-    const response = await fetch('http://127.0.0.1:2007/dev/addons/reload?directory=' + encodeURIComponent(addonConfig.directoryName), {
-      method: 'POST',
-      headers: { 'X-PulseSync-Addon-Dev': '1' },
-      signal: AbortSignal.timeout(2000),
-    })
+    const response = await fetch('http://127.0.0.1:2007/dev/addons/reload?directory=' + encodeURIComponent(addonConfig.directoryName), { method: 'POST', headers: { 'X-PulseSync-Addon-Dev': '1' }, signal: AbortSignal.timeout(2000) })
     reload = response.ok ? 'requested' : 'unsupported'
   } catch {}
-  console.log(\`PulseRedeem installed to \${target} (client reload: \${reload})\`)
+  console.log('PulseRedeem installed to ' + target + ' (client reload: ' + reload + ')')
   return target
 }
 
