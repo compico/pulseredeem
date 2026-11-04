@@ -239,7 +239,10 @@ function attachSocket(api: any, runtime: Runtime, socket: WebSocket, token: Twit
           const previous = runtime.socket
           const next = new WebSocket(String(reconnectUrl))
           runtime.socket = next
-          next.onopen = () => previous?.close()
+          next.onopen = () => {
+            if (previous) previous.onclose = null
+            previous?.close()
+          }
           attachSocket(api, runtime, next, token, broadcasterId, false)
         }
         return
@@ -287,6 +290,7 @@ async function startSession(api: any, runtime: Runtime) {
         if (latest?.accessToken) {
           const validatedNow = await validateToken(api, latest)
           if (validatedNow.token.accessToken !== latest.accessToken && !runtime.stopped) {
+            if (runtime.socket) runtime.socket.onclose = null
             runtime.socket?.close()
             await connectEventSub(api, runtime)
           }
@@ -314,6 +318,7 @@ async function connectTwitch(api: any) {
     const token = await authorizeWithDeviceCode(api, clientId)
     await validateToken(api, token)
     if (activeRuntime) {
+      if (activeRuntime.socket) activeRuntime.socket.onclose = null
       activeRuntime.socket?.close()
       activeRuntime.socket = null
       await connectEventSub(api, activeRuntime)
@@ -326,6 +331,8 @@ async function connectTwitch(api: any) {
 
 async function disconnectTwitch(api: any) {
   if (activeRuntime) {
+    activeRuntime.reconnectTimer?.()
+    if (activeRuntime.socket) activeRuntime.socket.onclose = null
     activeRuntime.socket?.close()
     activeRuntime.socket = null
   }
