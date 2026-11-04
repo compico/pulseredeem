@@ -69,6 +69,7 @@ async function authorizeWithDeviceCode(api: any, clientId: string): Promise<Twit
       body: new URLSearchParams({
         client_id: clientId,
         device_code: String(device.device_code),
+        scopes: REQUIRED_SCOPE,
         grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
       }).toString(),
       timeoutMs: 15000,
@@ -141,8 +142,6 @@ async function validateToken(api: any, token: TwitchToken): Promise<{ token: Twi
     throw new Error('У Twitch-токена нет разрешения ' + REQUIRED_SCOPE + '. Переподключи Twitch.')
   }
 
-  // Use Twitch's reported remaining lifetime rather than assuming a fixed token TTL.
-  if (Number(data.expires_in) <= 3600) current = await refreshToken(api, current)
   return { token: current, userId: String(data.user_id) }
 }
 
@@ -285,7 +284,13 @@ async function startSession(api: any, runtime: Runtime) {
     api.setInterval(() => {
       void (async () => {
         const latest = await api.storage.get<TwitchToken>(AUTH_KEY)
-        if (latest?.accessToken) await validateToken(api, latest)
+        if (latest?.accessToken) {
+          const validatedNow = await validateToken(api, latest)
+          if (validatedNow.token.accessToken !== latest.accessToken && !runtime.stopped) {
+            runtime.socket?.close()
+            await connectEventSub(api, runtime)
+          }
+        }
       })().catch(async error => {
         api.logger.error('Periodic Twitch token validation failed', error)
         await api.notifications.error('Проверка Twitch не прошла. Возможно, нужно переподключить аккаунт.')
