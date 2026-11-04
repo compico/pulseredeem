@@ -24,8 +24,29 @@ export async function syncAddon(sourceDir = process.env.PULSESYNC_ADDON_OUT_DIR 
     throw new Error('PulseRedeem source folder must not be the installed addon folder. Clone the project outside %APPDATA%\\PulseSync\\addons.')
   }
 
-  const metadata = JSON.parse(await fs.readFile(path.join(resolvedSource, 'metadata.json'), 'utf8'))
-  if (metadata.type !== 'web-addon' || metadata.id !== addonConfig.id) throw new Error('Build output is not the expected PulseRedeem web addon')
+  const metadataPath = path.join(resolvedSource, 'metadata.json')
+  let metadata
+  try {
+    metadata = JSON.parse(await fs.readFile(metadataPath, 'utf8'))
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error
+    // SDK 0.18 may emit the JS bundle without the host's script-addon metadata.
+    // PulseSync expects the legacy script-addon manifest shape.
+    metadata = {
+      name: addonConfig.name,
+      version: addonConfig.version,
+      author: addonConfig.author,
+      description: addonConfig.description,
+      type: 'script',
+      script: 'script.js',
+      ...(await fs.access(path.join(resolvedSource, 'script.css')).then(() => ({ css: 'script.css' })).catch(() => ({}))),
+      ...(addonConfig.image ? { image: addonConfig.image } : {}),
+      ...(addonConfig.banner ? { banner: addonConfig.banner } : {}),
+      tags: addonConfig.tags ?? [],
+    }
+    await fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2) + '\\n', 'utf8')
+  }
+  if (metadata.type !== 'script' || !metadata.script) throw new Error('Build output is not a valid PulseSync script addon')
   await fs.mkdir(root, { recursive: true })
   try {
     const installed = JSON.parse(await fs.readFile(path.join(target, 'metadata.json'), 'utf8'))
