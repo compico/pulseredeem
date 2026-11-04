@@ -8,6 +8,7 @@ async function processNext(api) {
   if (polling || api.signal.aborted) return
   polling = true
   let claimedId
+  let inserted = false
   try {
     const response = await api.net.fetch(`${BRIDGE_URL}/api/bridge/next`, {
       method: 'GET',
@@ -25,6 +26,7 @@ async function processNext(api) {
       albumId: item.albumId,
       position: 'last',
     })
+    inserted = true
 
     const completed = await api.net.fetch(`${BRIDGE_URL}/api/bridge/${encodeURIComponent(item.id)}/complete`, {
       method: 'POST',
@@ -34,7 +36,7 @@ async function processNext(api) {
     if (!completed.ok) throw new Error(`Could not acknowledge request: HTTP ${completed.status}`)
     api.logger.info('Track appended to Yandex Music queue', { trackId: item.trackId, requestId: item.id })
   } catch (error) {
-    if (claimedId && !api.signal.aborted) {
+    if (claimedId && !inserted && !api.signal.aborted) {
       try {
         await api.net.fetch(`${BRIDGE_URL}/api/bridge/${encodeURIComponent(claimedId)}/retry`, {
           method: 'POST',
@@ -47,7 +49,7 @@ async function processNext(api) {
         api.logger.error('Could not return failed request to queue', retryError)
       }
     }
-    if (!api.signal.aborted) api.logger.error('PulseRedeem queue delivery failed', error)
+    if (!api.signal.aborted) api.logger.error(inserted ? 'Track was added, but queue acknowledgement failed; not retrying to avoid duplicate insertion' : 'PulseRedeem queue delivery failed', error)
   } finally {
     polling = false
   }
