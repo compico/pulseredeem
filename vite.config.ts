@@ -14,6 +14,7 @@ export default defineConfig(({ mode }) => ({
     addonPlugin({
       manifest: defineAddonManifest(addonConfig),
       settings,
+      entry: 'src/main.ts',
       minify: mode === 'development' ? false : 'oxc',
       ...(process.env.PULSESYNC_ADDON_OUT_DIR
         ? { outDir: process.env.PULSESYNC_ADDON_OUT_DIR }
