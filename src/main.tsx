@@ -393,6 +393,15 @@ async function connectTwitch(api: any) {
 export default defineAddon({
   id: addonConfig.id,
   name: addonConfig.name,
+  playerBarButtons: [
+    {
+      id: 'pulseredeem-connect-twitch',
+      label: 'Подключить Twitch',
+      description: 'Подключить Twitch и автоматически создать награду «Заказать трек»',
+      icon: 'gift',
+      onClick: ({ api }) => connectTwitch(api),
+    },
+  ],
   start(api) {
     const seen = new Set<string>()
     activeRuntime = {
