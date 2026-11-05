@@ -230,10 +230,35 @@ async function subscribeToRedemptions(api: any, token: TwitchToken, broadcasterI
   api.logger.info('Subscribed to Twitch Channel Points redemptions')
 }
 
-function enqueueTwitchTrack(api: any, track: { trackId: string; albumId?: string }) {
-  api.client.addTrackToQueueById(track.trackId, {
+function enqueueTwitchTrack(api: any, track: { trackId: string; albumId?: string }, redemptionId: string) {
+  const client = api.client
+  if (typeof client?.addTrackToQueueById !== 'function') {
+    throw new Error('PulseSync не предоставляет API добавления трека в очередь')
+  }
+  if (typeof client?.getQueueSnapshot !== 'function') {
+    throw new Error('PulseSync не предоставляет API чтения очереди')
+  }
+
+  const snapshot = client.getQueueSnapshot()
+  const items = Array.isArray(snapshot?.items) ? snapshot.items : []
+  const currentIndex = Number(snapshot?.currentIndex)
+  const hasNextTrack = Number.isInteger(currentIndex)
+    && currentIndex >= 0
+    && currentIndex + 1 < items.length
+  const position = hasNextTrack ? 'next' : 'last'
+
+  api.logger.info('Queue insertion requested', {
+    trackId: track.trackId,
+    redemptionId,
+    position,
+    currentIndex: Number.isFinite(currentIndex) ? currentIndex : null,
+    queueLength: items.length,
+    nextTrackId: hasNextTrack ? String(items[currentIndex + 1]?.id || '') : null,
+  })
+
+  client.addTrackToQueueById(track.trackId, {
     albumId: track.albumId,
-    position: 'last',
+    position,
   })
 }
 
@@ -253,7 +278,7 @@ async function handleRedemption(api: any, runtime: Runtime, event: Record<string
 
   runtime.pendingRedemptions.add(redemptionId)
   try {
-    enqueueTwitchTrack(api, parsed)
+    enqueueTwitchTrack(api, parsed, redemptionId)
 
     runtime.seenRedemptions.add(redemptionId)
     const saved = await api.storage.get<string[]>(SEEN_KEY) || []
@@ -264,7 +289,7 @@ async function handleRedemption(api: any, runtime: Runtime, event: Record<string
       'Команда добавления трека отправлена в PulseSync по заявке ' + String(event.user_name || 'зрителя') + '.',
       { durationMs: 7000 },
     )
-    api.logger.info('Added redeemed Yandex Music track', { trackId: parsed.trackId, redemptionId })
+    api.logger.info('Queue insertion command sent to PulseSync', { trackId: parsed.trackId, redemptionId })
   } catch (error) {
     await api.notifications.error('Не удалось добавить трек из заявки Twitch: ' + (error instanceof Error ? error.message : String(error)))
     api.logger.error('Failed to append redeemed track', error)
