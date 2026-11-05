@@ -1,4 +1,4 @@
-import { defineAddon } from '@pulsesync/addon-sdk'
+import { defineAddon, IconButton } from '@pulsesync/addon-sdk'
 import addonConfig from '../addon.config.mjs'
 import { parseYandexTrackUrl } from './yandex-url.js'
 
@@ -390,19 +390,23 @@ async function connectTwitch(api: any) {
   }
 }
 
+function TwitchConnectButton() {
+  return (
+    <IconButton
+      icon="gift"
+      label="Подключить Twitch"
+      onClick={() => {
+        if (activeRuntime?.api) void connectTwitch(activeRuntime.api)
+      }}
+    />
+  )
+}
+
 export default defineAddon({
   id: addonConfig.id,
   name: addonConfig.name,
-  playerBarButtons: [
-    {
-      id: 'pulseredeem-connect-twitch',
-      label: 'Подключить Twitch',
-      description: 'Подключить Twitch и автоматически создать награду «Заказать трек»',
-      icon: 'gift',
-      onClick: ({ api }) => connectTwitch(api),
-    },
-  ],
-  activate(api) {
+  slots: { playerBarButton: TwitchConnectButton },
+  start(api) {
     const seen = new Set<string>()
     activeRuntime = {
       api,
