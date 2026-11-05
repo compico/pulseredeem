@@ -3,6 +3,7 @@ import addonConfig from '../addon.config.mjs'
 import { settings } from './settings'
 import { parseYandexTrackUrl } from './yandex-url.js'
 
+const TWITCH_CLIENT_ID = 'kgyvur9w7qo4epu0free3n5ex2r1wd'
 const TWITCH_ID = 'https://id.twitch.tv'
 const TWITCH_API = 'https://api.twitch.tv/helix'
 const EVENTSUB_URL = 'wss://eventsub.wss.twitch.tv/ws'
@@ -139,7 +140,7 @@ async function validateToken(api: any, token: TwitchToken): Promise<{ token: Twi
 
   if (!response.ok) throw new Error('Не удалось проверить Twitch-токен: HTTP ' + response.status)
   const data = await response.json() as Record<string, any>
-  if (data.client_id !== current.clientId) throw new Error('Twitch Client ID не совпадает с настройками аддона')
+  if (data.client_id !== current.clientId) throw new Error('Twitch Client ID не совпадает с Client ID, встроенным в PulseRedeem')
   if (!Array.isArray(data.scopes) || !REQUIRED_SCOPES.every(scope => data.scopes.includes(scope))) {
     throw new Error('Twitch-токену нужны разрешения ' + REQUIRED_SCOPE_TEXT + '. Переподключи Twitch и подтверди оба разрешения.')
   }
@@ -397,11 +398,7 @@ async function startSession(api: any, runtime: Runtime) {
 }
 
 async function connectTwitch(api: any) {
-  const clientId = String(api.settings.getCurrent().clientId || '').trim()
-  if (!clientId) {
-    await api.notifications.error('Сначала укажи Twitch Client ID в настройках PulseRedeem.')
-    return
-  }
+  const clientId = TWITCH_CLIENT_ID
 
   try {
     const token = await authorizeWithDeviceCode(api, clientId)
