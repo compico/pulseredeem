@@ -247,59 +247,13 @@ async function handleRedemption(api: any, runtime: Runtime, event: Record<string
   runtime.pendingRedemptions.add(redemptionId)
   try {
     const player = api.client
-    const expectedId = parsed.trackId + ':' + parsed.albumId
-    const before = player.getQueueSnapshot?.()
-    const beforeCount = Array.isArray(before?.items)
-      ? before.items.filter((item: any) => String(item?.id || '') === expectedId).length
-      : 0
-    const playerState = player.getPlayerSnapshot?.()
-    const hasCurrentTrack = Boolean(playerState?.track?.id)
-    const isPaused = playerState?.status === 'paused'
 
-    if (hasCurrentTrack || isPaused) {
-      // Insert directly after the current track, not at the end of My Wave's generated queue.
-      // injectNext does not toggle playback, so a paused player remains paused.
-      player.addTrackToQueueById(parsed.trackId, {
-        albumId: parsed.albumId,
-        position: 'next',
-      })
-    } else {
-      // No active track and playback is not paused: start the request as a new context.
-      player.playTrackById(parsed.trackId, { albumId: parsed.albumId })
-    }
-
-    // Queue insertion is a fire-and-forget host operation. Confirm it before reporting success.
-    const confirmed = await new Promise<boolean>(resolve => {
-      let finished = false
-      let unsubscribe: (() => void) | undefined
-      let cancelTimeout: (() => void) | undefined
-      const finish = (value: boolean) => {
-        if (finished) return
-        finished = true
-        unsubscribe?.()
-        cancelTimeout?.()
-        resolve(value)
-      }
-      cancelTimeout = api.setTimeout(() => finish(false), 5000)
-      const cleanup = player.onQueueChange?.((snapshot: any) => {
-        const count = Array.isArray(snapshot?.items)
-          ? snapshot.items.filter((item: any) => String(item?.id || '') === expectedId).length
-          : 0
-        if (count > beforeCount) finish(true)
-      })
-      if (finished) cleanup?.()
-      else unsubscribe = cleanup
-      const current = player.getQueueSnapshot?.()
-      const count = Array.isArray(current?.items)
-        ? current.items.filter((item: any) => String(item?.id || '') === expectedId).length
-        : 0
-      if (count > beforeCount) finish(true)
-      if (!unsubscribe) finish(!hasCurrentTrack && !isPaused)
+    // Always enqueue after the current track. Do not call playTrackById here:
+    // it switches playback immediately and can interrupt an earlier Twitch request.
+    player.addTrackToQueueById(parsed.trackId, {
+      albumId: parsed.albumId,
+      position: 'next',
     })
-
-    if (!confirmed) {
-      throw new Error('PulseSync не подтвердил добавление трека в очередь за 5 секунд')
-    }
 
     runtime.seenRedemptions.add(redemptionId)
     const saved = await api.storage.get<string[]>(SEEN_KEY) || []
@@ -307,7 +261,7 @@ async function handleRedemption(api: any, runtime: Runtime, event: Record<string
     await api.storage.set(SEEN_KEY, next)
 
     await api.notifications.info(
-      'Трек принят очередью PulseSync по заявке ' + String(event.user_name || 'зрителя') + '.',
+      'Команда добавления трека отправлена в PulseSync по заявке ' + String(event.user_name || 'зрителя') + '.',
       { durationMs: 7000 },
     )
     api.logger.info('Added redeemed Yandex Music track', { trackId: parsed.trackId, redemptionId })
