@@ -116,7 +116,8 @@ export async function deliverAddon(sourceDir, config) {
   const resolvedSource = path.resolve(sourceDir)
   const targetRoot = path.resolve(getAddonsDir())
   const target = path.join(targetRoot, directoryName)
-  if (resolvedSource === target || path.relative(target, resolvedSource).startsWith('..' + path.sep)) {
+  const relativeSource = path.relative(target, resolvedSource)
+  if (!relativeSource || (!relativeSource.startsWith('..' + path.sep) && relativeSource !== '..' && !path.isAbsolute(relativeSource))) {
     throw new Error('Build output must be outside the installed PulseSync addons directory.')
   }
 
