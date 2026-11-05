@@ -25,6 +25,9 @@ type Runtime = {
   reconnectTimer: (() => void) | null
   pendingRedemptions: Set<string>
   seenRedemptions: Set<string>
+  trackRequests: Array<{ trackId: string; albumId?: string; redemptionId: string; userName: string }>
+  activeTrackRequest: { trackId: string; redemptionId: string; startIndex: number } | null
+  queueUnsubscribe: (() => void) | null
 }
 
 let activeRuntime: Runtime | null = null
@@ -230,25 +233,75 @@ async function subscribeToRedemptions(api: any, token: TwitchToken, broadcasterI
   api.logger.info('Subscribed to Twitch Channel Points redemptions')
 }
 
-function enqueueTwitchTrack(api: any, track: { trackId: string; albumId?: string }, redemptionId: string) {
+function pumpTwitchTrackQueue(api: any, runtime: Runtime) {
+  if (runtime.stopped || runtime.activeTrackRequest || runtime.trackRequests.length === 0) return
+
   const client = api.client
   if (typeof client?.addTrackToQueueById !== 'function') {
     throw new Error('PulseSync не предоставляет API добавления трека в очередь')
   }
+  if (typeof client?.getQueueSnapshot !== 'function') {
+    throw new Error('PulseSync не предоставляет API чтения очереди')
+  }
 
-  // Wave/context queues can contain a long list of generated tracks.
-  // Appending to the end may leave a Twitch request far behind that list.
-  // Always inject immediately after the currently playing track.
-  api.logger.info('Queue insertion requested', {
-    trackId: track.trackId,
-    redemptionId,
-    position: 'next',
+  const request = runtime.trackRequests[0]
+  const snapshot = client.getQueueSnapshot()
+  const startIndex = typeof snapshot?.currentIndex === 'number' ? snapshot.currentIndex : -1
+
+  // Inject only one request at a time. The next request is injected after this
+  // one becomes the current track, preserving FIFO even with repeated "next".
+  runtime.activeTrackRequest = {
+    trackId: request.trackId,
+    redemptionId: request.redemptionId,
+    startIndex,
+  }
+
+  try {
+    client.addTrackToQueueById(request.trackId, {
+      albumId: request.albumId,
+      position: 'next',
+    })
+    api.logger.info('Twitch track request inserted as next', {
+      trackId: request.trackId,
+      redemptionId: request.redemptionId,
+      pendingCount: runtime.trackRequests.length,
+    })
+  } catch (error) {
+    runtime.activeTrackRequest = null
+    throw error
+  }
+}
+
+function observeTwitchTrackQueue(api: any, runtime: Runtime, snapshot: any) {
+  const active = runtime.activeTrackRequest
+  if (!active || runtime.stopped) return
+
+  const currentIndex = snapshot?.currentIndex
+  const currentTrack = Array.isArray(snapshot?.items) && Number.isInteger(currentIndex)
+    ? snapshot.items[currentIndex]
+    : null
+  const currentTrackId = String(currentTrack?.id || '')
+
+  if (
+    typeof currentIndex !== 'number'
+    || currentIndex === active.startIndex
+    || currentTrackId !== active.trackId
+  ) return
+
+  const completed = runtime.trackRequests.shift()
+  runtime.activeTrackRequest = null
+  api.logger.info('Twitch track request started', {
+    trackId: active.trackId,
+    redemptionId: active.redemptionId,
+    remainingRequests: runtime.trackRequests.length,
   })
 
-  client.addTrackToQueueById(track.trackId, {
-    albumId: track.albumId,
-    position: 'next',
-  })
+  try {
+    pumpTwitchTrackQueue(api, runtime)
+  } catch (error) {
+    api.logger.error('Could not insert next Twitch track request', error)
+    if (completed) runtime.trackRequests.unshift(completed)
+  }
 }
 
 async function handleRedemption(api: any, runtime: Runtime, event: Record<string, any>) {
@@ -267,7 +320,13 @@ async function handleRedemption(api: any, runtime: Runtime, event: Record<string
 
   runtime.pendingRedemptions.add(redemptionId)
   try {
-    enqueueTwitchTrack(api, parsed, redemptionId)
+    runtime.trackRequests.push({
+      trackId: parsed.trackId,
+      albumId: parsed.albumId,
+      redemptionId,
+      userName: String(event.user_name || 'зрителя'),
+    })
+    pumpTwitchTrackQueue(api, runtime)
 
     runtime.seenRedemptions.add(redemptionId)
     const saved = await api.storage.get<string[]>(SEEN_KEY) || []
@@ -275,7 +334,7 @@ async function handleRedemption(api: any, runtime: Runtime, event: Record<string
     await api.storage.set(SEEN_KEY, next)
 
     await api.notifications.info(
-      'Команда добавления трека отправлена в PulseSync по заявке ' + String(event.user_name || 'зрителя') + '.',
+      'Заявка на трек принята в очередь PulseRedeem от ' + String(event.user_name || 'зрителя') + '.',
       { durationMs: 7000 },
     )
     api.logger.info('Queue insertion command sent to PulseSync', { trackId: parsed.trackId, redemptionId })
@@ -433,6 +492,17 @@ export default defineAddon({
       reconnectTimer: null,
       pendingRedemptions: new Set(),
       seenRedemptions: seen,
+      trackRequests: [],
+      activeTrackRequest: null,
+      queueUnsubscribe: null,
+    }
+
+    if (typeof api.client?.onQueueChange === 'function') {
+      activeRuntime.queueUnsubscribe = api.client.onQueueChange((snapshot: any) => {
+        observeTwitchTrackQueue(api, activeRuntime!, snapshot)
+      })
+    } else {
+      api.logger.warn('PulseSync queue change subscription is unavailable; FIFO requests cannot be advanced automatically')
     }
 
     void (async () => {
@@ -444,6 +514,8 @@ export default defineAddon({
     return () => {
       if (!activeRuntime) return
       activeRuntime.stopped = true
+      activeRuntime.queueUnsubscribe?.()
+      activeRuntime.queueUnsubscribe = null
       activeRuntime.reconnectTimer?.()
       activeRuntime.socket?.close()
       activeRuntime = null
