@@ -20,14 +20,13 @@ PulseSync addon: Twitch Channel Points → Яндекс Музыка → оче�
 
 Для однократной установки без режима наблюдения используй **npm run build**, затем **npm run sync**. После этого перезапусти PulseSync.
 
-7. В настройках PulseRedeem укажи **Twitch Client ID**. Client Secret не нужен.
-8. Нажми **Подключить Twitch** в панели PulseSync. В уведомлении появятся код и ссылка активации Twitch. Подтверди доступ в браузере.
+7. Нажми **Подключить Twitch** в интерфейсе PulseSync. Client ID уже встроен в аддон; Client Secret не используется. В уведомлении появятся код и ссылка активации Twitch. Подтверди доступ в браузере.
 9. После авторизации выбери существующую награду Channel Points или создай новую прямо в окне PulseSync. Новая награда будет создана с обязательным текстовым вводом.
 10. Попроси зрителей вставлять в поле награды прямую ссылку на трек Яндекс Музыки. Чтобы изменить выбранную награду, нажми **Настроить награду**.
 
 ## Настройка приложения Twitch
 
-В Twitch Developer Console создай приложение и выбери тип клиента **Public** (без Client Secret). Скопируй Client ID в настройки аддона. PulseRedeem запрашивает разрешения **channel:read:redemptions** и **channel:manage:redemptions**: первое нужно для чтения списка наград, второе — для создания награды.
+В Twitch Developer Console приложение PulseRedeem зарегистрировано как **Public client** (без Client Secret). Client ID встроен в аддон. PulseRedeem запрашивает разрешения **channel:read:redemptions** и **channel:manage:redemptions**: первое нужно для чтения списка наград, второе — для создания награды.
 
 В поле **OAuth Redirect URLs** укажи `http://localhost`, если Twitch Developer Console требует URL. Успешный OAuth Device Code Flow не использует redirect URL и не требует callback-сервера; Twitch может вернуть пользователя на этот адрес при отказе/отмене авторизации.
 
