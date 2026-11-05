@@ -71,7 +71,7 @@ async function authorizeWithDeviceCode(api: any, clientId: string): Promise<Twit
       body: new URLSearchParams({
         client_id: clientId,
         device_code: String(device.device_code),
-        scopes: REQUIRED_SCOPE,
+        scopes: REQUIRED_SCOPE_TEXT,
         grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
       }).toString(),
       timeoutMs: 15000,
@@ -428,7 +428,8 @@ async function configureReward(api: any) {
       return
     }
     const validated = await validateToken(api, stored)
-    await chooseReward(api, validated.token, validated.userId, true)
+    const reward = await chooseReward(api, validated.token, validated.userId, true)
+    if (reward && activeRuntime && !activeRuntime.socket) await connectEventSub(api, activeRuntime)
   } catch (error) {
     await api.notifications.error('Не удалось настроить награду: ' + (error instanceof Error ? error.message : String(error)))
   }
