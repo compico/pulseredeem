@@ -241,8 +241,9 @@ function enqueueTwitchTrack(api: any, track: { trackId: string; albumId?: string
 
   const snapshot = client.getQueueSnapshot()
   const items = Array.isArray(snapshot?.items) ? snapshot.items : []
-  const currentIndex = Number(snapshot?.currentIndex)
-  const hasNextTrack = Number.isInteger(currentIndex)
+  const currentIndex = snapshot?.currentIndex
+  const hasNextTrack = typeof currentIndex === 'number'
+    && Number.isInteger(currentIndex)
     && currentIndex >= 0
     && currentIndex + 1 < items.length
   const position = hasNextTrack ? 'next' : 'last'
@@ -251,7 +252,7 @@ function enqueueTwitchTrack(api: any, track: { trackId: string; albumId?: string
     trackId: track.trackId,
     redemptionId,
     position,
-    currentIndex: Number.isFinite(currentIndex) ? currentIndex : null,
+    currentIndex: typeof currentIndex === 'number' && Number.isFinite(currentIndex) ? currentIndex : null,
     queueLength: items.length,
     nextTrackId: hasNextTrack ? String(items[currentIndex + 1]?.id || '') : null,
   })
