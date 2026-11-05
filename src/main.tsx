@@ -260,6 +260,8 @@ async function handleRedemption(api: any, runtime: Runtime, event: Record<string
   const redemptionId = String(event.id || '')
   if (!redemptionId || runtime.seenRedemptions.has(redemptionId) || runtime.pendingRedemptions.has(redemptionId)) return
 
+  if (settings.store.enabled === false) return
+
   const rewardId = String(event.reward?.id || '')
   const selectedReward = await api.storage.get<{ id: string; title: string }>(REWARD_KEY)
   if (!selectedReward?.id || rewardId !== selectedReward.id) return
@@ -447,7 +449,7 @@ export default defineAddon({
   id: addonConfig.id,
   name: addonConfig.name,
   settings,
-  playerBarButtons: [
+  headerActions: [
     {
       id: 'pulseredeem-connect-twitch',
       label: 'Подключить Twitch',
