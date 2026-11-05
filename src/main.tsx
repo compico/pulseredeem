@@ -27,7 +27,8 @@ type Runtime = {
   seenRedemptions: Set<string>
   twitchQueue: Array<{ trackId: string; albumId?: string }>
   activeTwitchTrackId: string | null
-  queueUnsubscribe: (() => void) | null
+  activeTwitchTrackStarted: boolean
+  trackUnsubscribe: (() => void) | null
 }
 
 let activeRuntime: Runtime | null = null
@@ -241,19 +242,29 @@ function enqueueTwitchTrack(api: any, runtime: Runtime, track: { trackId: string
     const next = runtime.twitchQueue.shift()!
     const entityId = next.albumId ? next.trackId + ':' + next.albumId : next.trackId
     runtime.activeTwitchTrackId = entityId
+    runtime.activeTwitchTrackStarted = false
     api.client.addTrackToQueueById(next.trackId, {
       albumId: next.albumId,
       position: 'next',
     })
   }
 
-  if (!runtime.queueUnsubscribe && typeof api.client.onQueueChange === 'function') {
-    runtime.queueUnsubscribe = api.client.onQueueChange((snapshot: any) => {
-      const current = snapshot?.items?.[snapshot.currentIndex]
-      if (runtime.activeTwitchTrackId && current?.id === runtime.activeTwitchTrackId) {
-        runtime.activeTwitchTrackId = null
-        playNext()
+  if (!runtime.trackUnsubscribe && typeof api.client.onCurrentTrackChange === 'function') {
+    runtime.trackUnsubscribe = api.client.onCurrentTrackChange((current: any) => {
+      const currentId = typeof current?.id === 'string' ? current.id : null
+
+      if (!runtime.activeTwitchTrackId) return
+      if (currentId === runtime.activeTwitchTrackId) {
+        runtime.activeTwitchTrackStarted = true
+        return
       }
+
+      // Ignore initial/current-track notifications until this request actually starts.
+      if (!runtime.activeTwitchTrackStarted) return
+
+      runtime.activeTwitchTrackId = null
+      runtime.activeTwitchTrackStarted = false
+      playNext()
     })
   }
 
@@ -444,7 +455,8 @@ export default defineAddon({
       seenRedemptions: seen,
       twitchQueue: [],
       activeTwitchTrackId: null,
-      queueUnsubscribe: null,
+      activeTwitchTrackStarted: false,
+      trackUnsubscribe: null,
     }
 
     void (async () => {
@@ -458,7 +470,7 @@ export default defineAddon({
       activeRuntime.stopped = true
       activeRuntime.reconnectTimer?.()
       activeRuntime.socket?.close()
-      activeRuntime.queueUnsubscribe?.()
+      activeRuntime.trackUnsubscribe?.()
       activeRuntime = null
     }
   },
