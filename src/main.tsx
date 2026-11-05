@@ -167,7 +167,7 @@ async function twitchApi(api: any, token: TwitchToken, url: string, init: Reques
 
 async function chooseReward(api: any, token: TwitchToken, broadcasterId: string, force = false) {
   const saved = await api.storage.get<{ id: string; title: string }>(REWARD_KEY)
-  if (saved?.id) return saved
+  if (saved?.id && !force) return saved
 
   const result = await twitchApi(api, token, TWITCH_API + '/channel_points/custom_rewards?broadcaster_id=' + encodeURIComponent(broadcasterId))
   const rewards = (Array.isArray(result.data) ? result.data : []) as TwitchReward[]
