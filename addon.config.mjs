@@ -3,7 +3,7 @@ const addonConfig = {
   directoryName: 'pulseredeem',
   name: 'PulseRedeem',
   description: 'Twitch Channel Points → Яндекс Музыка: добавляет заявки прямо в очередь PulseSync.',
-  version: '0.3.0',
+  version: '0.4.0',
   author: 'compico',
   image: '',
   banner: '',
