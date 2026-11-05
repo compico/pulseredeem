@@ -288,7 +288,7 @@ function observeTwitchTrackQueue(api: any, runtime: Runtime, snapshot: any) {
     || currentTrackId !== active.trackId
   ) return
 
-  const completed = runtime.trackRequests.shift()
+  runtime.trackRequests.shift()
   runtime.activeTrackRequest = null
   api.logger.info('Twitch track request started', {
     trackId: active.trackId,
@@ -300,7 +300,6 @@ function observeTwitchTrackQueue(api: any, runtime: Runtime, snapshot: any) {
     pumpTwitchTrackQueue(api, runtime)
   } catch (error) {
     api.logger.error('Could not insert next Twitch track request', error)
-    if (completed) runtime.trackRequests.unshift(completed)
   }
 }
 
