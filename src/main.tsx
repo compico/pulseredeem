@@ -25,6 +25,9 @@ type Runtime = {
   reconnectTimer: (() => void) | null
   pendingRedemptions: Set<string>
   seenRedemptions: Set<string>
+  twitchQueue: Array<{ trackId: string; albumId?: string }>
+  activeTwitchTrackId: string | null
+  queueUnsubscribe: (() => void) | null
 }
 
 let activeRuntime: Runtime | null = null
@@ -230,6 +233,33 @@ async function subscribeToRedemptions(api: any, token: TwitchToken, broadcasterI
   api.logger.info('Subscribed to Twitch Channel Points redemptions')
 }
 
+function enqueueTwitchTrack(api: any, runtime: Runtime, track: { trackId: string; albumId?: string }) {
+  runtime.twitchQueue.push(track)
+
+  const playNext = () => {
+    if (runtime.activeTwitchTrackId || runtime.twitchQueue.length === 0) return
+    const next = runtime.twitchQueue.shift()!
+    const entityId = next.albumId ? next.trackId + ':' + next.albumId : next.trackId
+    runtime.activeTwitchTrackId = entityId
+    api.client.addTrackToQueueById(next.trackId, {
+      albumId: next.albumId,
+      position: 'next',
+    })
+  }
+
+  if (!runtime.queueUnsubscribe && typeof api.client.onQueueChange === 'function') {
+    runtime.queueUnsubscribe = api.client.onQueueChange((snapshot: any) => {
+      const current = snapshot?.items?.[snapshot.currentIndex]
+      if (runtime.activeTwitchTrackId && current?.id === runtime.activeTwitchTrackId) {
+        runtime.activeTwitchTrackId = null
+        playNext()
+      }
+    })
+  }
+
+  playNext()
+}
+
 async function handleRedemption(api: any, runtime: Runtime, event: Record<string, any>) {
   const redemptionId = String(event.id || '')
   if (!redemptionId || runtime.seenRedemptions.has(redemptionId) || runtime.pendingRedemptions.has(redemptionId)) return
@@ -246,14 +276,7 @@ async function handleRedemption(api: any, runtime: Runtime, event: Record<string
 
   runtime.pendingRedemptions.add(redemptionId)
   try {
-    const player = api.client
-
-    // Always enqueue after the current track. Do not call playTrackById here:
-    // it switches playback immediately and can interrupt an earlier Twitch request.
-    player.addTrackToQueueById(parsed.trackId, {
-      albumId: parsed.albumId,
-      position: 'next',
-    })
+    enqueueTwitchTrack(api, runtime, parsed)
 
     runtime.seenRedemptions.add(redemptionId)
     const saved = await api.storage.get<string[]>(SEEN_KEY) || []
@@ -419,6 +442,9 @@ export default defineAddon({
       reconnectTimer: null,
       pendingRedemptions: new Set(),
       seenRedemptions: seen,
+      twitchQueue: [],
+      activeTwitchTrackId: null,
+      queueUnsubscribe: null,
     }
 
     void (async () => {
@@ -432,6 +458,7 @@ export default defineAddon({
       activeRuntime.stopped = true
       activeRuntime.reconnectTimer?.()
       activeRuntime.socket?.close()
+      activeRuntime.queueUnsubscribe?.()
       activeRuntime = null
     }
   },
