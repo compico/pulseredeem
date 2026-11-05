@@ -29,7 +29,9 @@ PulseSync addon: Twitch Channel Points → Яндекс Музыка → оче�
 
 В Twitch Developer Console создай приложение и выбери тип клиента **Public** (без Client Secret). Скопируй Client ID в настройки аддона. PulseRedeem запрашивает разрешения **channel:read:redemptions** и **channel:manage:redemptions**: первое нужно для чтения списка наград, второе — для создания награды.
 
-В поле **OAuth Redirect URLs** укажи `http://localhost`, если Twitch Developer Console требует URL. Успешный OAuth Device Code Flow не использует redirect URL и не требует callback-сервера; Twitch может вернуть пользователя на этот адрес при отказе/отмене авторизации.\n\nИспользуется OAuth Device Code Flow: аддон показывает одноразовый код, а подтверждение происходит на странице Twitch. Токены хранятся в локальном хранилище PulseSync, а не в файлах проекта. Refresh token Device Flow одноразовый и ротируется при обновлении — новая версия сохраняется сразу.
+В поле **OAuth Redirect URLs** укажи `http://localhost`, если Twitch Developer Console требует URL. Успешный OAuth Device Code Flow не использует redirect URL и не требует callback-сервера; Twitch может вернуть пользователя на этот адрес при отказе/отмене авторизации.
+
+Используется OAuth Device Code Flow: аддон показывает одноразовый код, а подтверждение происходит на странице Twitch. Токены хранятся в локальном хранилище PulseSync, а не в файлах проекта. Refresh token Device Flow одноразовый и ротируется при обновлении — новая версия сохраняется сразу.
 
 Аддон проверяет токен при запуске и далее раз в час через Twitch /oauth2/validate. Мы не зашиваем срок жизни токена: если Twitch вернёт 401, аддон использует refresh token и сохраняет его новую одноразовую версию. Public-client refresh token может стать недействительным после 30 дней без использования; если Twitch отклонит обновление или пользователь отзовёт доступ, подключи Twitch заново.
 
