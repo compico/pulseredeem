@@ -1,7 +1,43 @@
 # PulseRedeem
 
-Twitch Channel Points song-request integration for Yandex Music Desktop via PulseSync.
+Минимальный MVP: Twitch Channel Points → Яндекс Музыка → очередь PulseSync.
 
-> Work in progress. Target versions: PulseSync `v3.0.3-beta`, Yandex Music Desktop `5.125.3`.
+## Как проверить
 
-The project will use a local Windows service, a browser dashboard, Twitch EventSub, and a PulseSync addon bridge. The player-control integration must be implemented against the exact installed PulseSync SDK/API; no undocumented queue method will be assumed.
+1. Установи аддон в PulseSync.
+2. Нажми единственную кнопку **Подключить Twitch** в панели плеера.
+3. Подтверди доступ на странице Twitch по коду из уведомления.
+4. PulseRedeem автоматически создаст на канале награду **«Заказать трек»** стоимостью **500 баллов** с обязательным текстовым полем.
+5. Попроси зрителя погасить награду, вставив прямую ссылку на трек Яндекс Музыки.
+6. После получения EventSub-события трек должен добавиться в конец очереди PulseSync.
+
+Повторное подключение использует уже существующую награду с таким названием, чтобы не плодить дубликаты.
+
+## Что зашито в MVP
+
+- Twitch Client ID встроен в аддон; OAuth Device Code Flow, без Client Secret и локального сервера.
+- Награда: **Заказать трек**.
+- Стоимость: **500 баллов**.
+- Подсказка: **Вставь прямую ссылку на трек Яндекс Музыки**.
+- Обрабатываются только погашения этой награды.
+- Треки добавляются в конец очереди PulseSync.
+- Повторные EventSub-события с тем же redemption ID отсекаются.
+
+## Сборка
+
+Требуется Node.js 22.12+.
+
+```bash
+npm install
+npm run dev
+```
+
+Оставь окно терминала открытым: `npm run dev` собирает аддон в каталог PulseSync и следит за изменениями. После сборки перезапусти PulseSync или обнови интерфейс через Ctrl+R.
+
+## Важно
+
+- Twitch-приложение должно быть зарегистрировано как **Public client**. Redirect URL можно указать `http://localhost`; callback-сервер не используется.
+- Запрашиваются разрешения `channel:read:redemptions` и `channel:manage:redemptions`.
+- WebSocket/EventSub необходимо проверить в целевой версии PulseSync: SDK 0.18.0 не документирует отдельный WebSocket API.
+- MVP не предоставляет интерфейс отключения Twitch, выбора награды или изменения её параметров.
+- Аддон пока не переводит погашения в статус Fulfilled автоматически.

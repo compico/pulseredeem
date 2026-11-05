@@ -1,0 +1,9 @@
+node_modules/
+.env
+data/
+coverage/
+*.log
+dist/
+.pulsesync-dev/
+.pulsesync-dev-staging/
+.pulsesync-local-modules/
