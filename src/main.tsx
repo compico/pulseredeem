@@ -281,12 +281,14 @@ async function handleRedemption(api: any, runtime: Runtime, event: Record<string
         resolve(value)
       }
       cancelTimeout = api.setTimeout(() => finish(false), 5000)
-      unsubscribe = player.onQueueChange?.((snapshot: any) => {
+      const cleanup = player.onQueueChange?.((snapshot: any) => {
         const count = Array.isArray(snapshot?.items)
           ? snapshot.items.filter((item: any) => String(item?.id || '') === expectedId).length
           : 0
         if (count > beforeCount) finish(true)
       })
+      if (finished) cleanup?.()
+      else unsubscribe = cleanup
       const current = player.getQueueSnapshot?.()
       const count = Array.isArray(current?.items)
         ? current.items.filter((item: any) => String(item?.id || '') === expectedId).length
