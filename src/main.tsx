@@ -402,7 +402,7 @@ export default defineAddon({
       onClick: ({ api }) => connectTwitch(api),
     },
   ],
-  start(api) {
+  activate(api) {
     const seen = new Set<string>()
     activeRuntime = {
       api,
