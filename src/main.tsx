@@ -6,9 +6,11 @@ import { parseYandexTrackUrl } from './yandex-url.js'
 const TWITCH_ID = 'https://id.twitch.tv'
 const TWITCH_API = 'https://api.twitch.tv/helix'
 const EVENTSUB_URL = 'wss://eventsub.wss.twitch.tv/ws'
-const REQUIRED_SCOPE = 'channel:read:redemptions'
+const REQUIRED_SCOPES = ['channel:read:redemptions', 'channel:manage:redemptions'] as const
+const REQUIRED_SCOPE_TEXT = REQUIRED_SCOPES.join(' ')
 const AUTH_KEY = 'twitchAuth'
 const SEEN_KEY = 'seenRedemptions'
+const REWARD_KEY = 'selectedReward'
 
 type TwitchToken = {
   accessToken: string
@@ -47,7 +49,7 @@ async function postForm(api: any, url: string, values: Record<string, string>) {
 async function authorizeWithDeviceCode(api: any, clientId: string): Promise<TwitchToken> {
   const device = await postForm(api, TWITCH_ID + '/oauth2/device', {
     client_id: clientId,
-    scopes: REQUIRED_SCOPE,
+    scopes: REQUIRED_SCOPE_TEXT,
   })
 
   const verificationUrl = String(device.verification_uri_complete || device.verification_uri || 'https://www.twitch.tv/activate')
@@ -138,11 +140,95 @@ async function validateToken(api: any, token: TwitchToken): Promise<{ token: Twi
   if (!response.ok) throw new Error('Не удалось проверить Twitch-токен: HTTP ' + response.status)
   const data = await response.json() as Record<string, any>
   if (data.client_id !== current.clientId) throw new Error('Twitch Client ID не совпадает с настройками аддона')
-  if (!Array.isArray(data.scopes) || !data.scopes.includes(REQUIRED_SCOPE)) {
-    throw new Error('У Twitch-токена нет разрешения ' + REQUIRED_SCOPE + '. Переподключи Twitch.')
+  if (!Array.isArray(data.scopes) || !REQUIRED_SCOPES.every(scope => data.scopes.includes(scope))) {
+    throw new Error('Twitch-токену нужны разрешения ' + REQUIRED_SCOPE_TEXT + '. Переподключи Twitch и подтверди оба разрешения.')
   }
 
   return { token: current, userId: String(data.user_id) }
+}
+
+type TwitchReward = { id: string; title: string; cost: number; prompt?: string }
+
+async function twitchApi(api: any, token: TwitchToken, url: string, init: RequestInit = {}) {
+  const response = await api.net.fetch(url, {
+    ...init,
+    headers: {
+      authorization: 'Bearer ' + token.accessToken,
+      'client-id': token.clientId,
+      ...(init.headers || {}),
+    },
+    timeoutMs: 15000,
+    signal: api.signal,
+  })
+  const data = await response.json().catch(() => ({})) as Record<string, any>
+  if (!response.ok) throw new Error(String(data.message || ('Twitch API HTTP ' + response.status)))
+  return data
+}
+
+async function chooseReward(api: any, token: TwitchToken, broadcasterId: string) {
+  const saved = await api.storage.get<{ id: string; title: string }>(REWARD_KEY)
+  if (saved?.id) return saved
+
+  const result = await twitchApi(api, token, TWITCH_API + '/channel_points/custom_rewards?broadcaster_id=' + encodeURIComponent(broadcasterId))
+  const rewards = (Array.isArray(result.data) ? result.data : []) as TwitchReward[]
+  const createValue = '__create_new_reward__'
+  const selected = await api.modals.form({
+    title: 'Награда для PulseRedeem',
+    message: 'Выбери награду Channel Points, за которую зрители смогут отправлять ссылки на треки. Можно создать отдельную награду.',
+    confirmLabel: 'Продолжить',
+    cancelLabel: 'Позже',
+    fields: [{
+      name: 'rewardId',
+      label: 'Награда канала',
+      type: 'select',
+      required: true,
+      options: [
+        ...rewards.map(reward => ({ value: reward.id, label: reward.title + ' — ' + reward.cost + ' баллов' })),
+        { value: createValue, label: '＋ Создать новую награду…' },
+      ],
+      value: rewards[0]?.id || createValue,
+    }],
+  })
+  if (!selected) return null
+
+  const choice = String((selected as any).rewardId || '')
+  if (choice !== createValue) {
+    const reward = rewards.find(item => item.id === choice)
+    if (!reward) throw new Error('Выбранная награда не найдена в ответе Twitch')
+    const value = { id: reward.id, title: reward.title }
+    await api.storage.set(REWARD_KEY, value)
+    await api.notifications.info('Для PulseRedeem выбрана награда «' + reward.title + '».')
+    return value
+  }
+
+  const created = await api.modals.form({
+    title: 'Создать награду Channel Points',
+    message: 'PulseRedeem создаст награду с обязательным текстовым вводом, чтобы зритель мог вставить ссылку на трек Яндекс Музыки.',
+    confirmLabel: 'Создать награду',
+    cancelLabel: 'Отмена',
+    fields: [
+      { name: 'title', label: 'Название награды', type: 'text', value: 'Заказать трек', required: true, minLength: 1, maxLength: 45 },
+      { name: 'cost', label: 'Стоимость в баллах', type: 'slider', value: 500, min: 1, max: 100000, step: 1 },
+      { name: 'prompt', label: 'Подсказка для зрителя', type: 'text', value: 'Вставь ссылку на трек Яндекс Музыки', required: true, minLength: 1, maxLength: 200 },
+    ],
+  })
+  if (!created) return null
+  const title = String((created as any).title || '').trim()
+  const prompt = String((created as any).prompt || '').trim()
+  const cost = Math.floor(Number((created as any).cost))
+  if (!title || !prompt || !Number.isFinite(cost) || cost < 1) throw new Error('Проверь название, подсказку и стоимость награды')
+
+  const response = await twitchApi(api, token, TWITCH_API + '/channel_points/custom_rewards?broadcaster_id=' + encodeURIComponent(broadcasterId), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ title, cost, prompt, is_user_input_required: true }),
+  })
+  const reward = response.data?.[0] as TwitchReward | undefined
+  if (!reward?.id) throw new Error('Twitch не вернул созданную награду')
+  const value = { id: reward.id, title: reward.title || title }
+  await api.storage.set(REWARD_KEY, value)
+  await api.notifications.info('Награда «' + value.title + '» создана и выбрана для PulseRedeem.')
+  return value
 }
 
 async function subscribeToRedemptions(api: any, token: TwitchToken, broadcasterId: string, sessionId: string) {
@@ -174,8 +260,8 @@ async function handleRedemption(api: any, runtime: Runtime, event: Record<string
   if (!redemptionId || runtime.seenRedemptions.has(redemptionId) || runtime.pendingRedemptions.has(redemptionId)) return
 
   const rewardId = String(event.reward?.id || '')
-  const configuredRewardId = String(api.settings.getCurrent().rewardId || '').trim()
-  if (configuredRewardId && rewardId !== configuredRewardId) return
+  const selectedReward = await api.storage.get<{ id: string; title: string }>(REWARD_KEY)
+  if (!selectedReward?.id || rewardId !== selectedReward.id) return
 
   const parsed = parseYandexTrackUrl(String(event.user_input || ''))
   if (!parsed) {
@@ -281,6 +367,7 @@ async function startSession(api: any, runtime: Runtime) {
   if (!stored?.accessToken) return
   try {
     const validated = await validateToken(api, stored)
+    await chooseReward(api, validated.token, validated.userId)
     await connectEventSub(api, runtime)
     api.setInterval(() => {
       void (async () => {
@@ -314,7 +401,8 @@ async function connectTwitch(api: any) {
 
   try {
     const token = await authorizeWithDeviceCode(api, clientId)
-    await validateToken(api, token)
+    const validated = await validateToken(api, token)
+    await chooseReward(api, validated.token, validated.userId)
     if (activeRuntime) {
       if (activeRuntime.socket) activeRuntime.socket.onclose = null
       activeRuntime.socket?.close()
