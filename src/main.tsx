@@ -165,7 +165,7 @@ async function twitchApi(api: any, token: TwitchToken, url: string, init: Reques
   return data
 }
 
-async function chooseReward(api: any, token: TwitchToken, broadcasterId: string) {
+async function chooseReward(api: any, token: TwitchToken, broadcasterId: string, force = false) {
   const saved = await api.storage.get<{ id: string; title: string }>(REWARD_KEY)
   if (saved?.id) return saved
 
@@ -367,7 +367,11 @@ async function startSession(api: any, runtime: Runtime) {
   if (!stored?.accessToken) return
   try {
     const validated = await validateToken(api, stored)
-    await chooseReward(api, validated.token, validated.userId)
+    const reward = await chooseReward(api, validated.token, validated.userId)
+    if (!reward) {
+      await api.notifications.info('Выбор награды отложен. Нажми «Настроить награду», чтобы завершить настройку.')
+      return
+    }
     await connectEventSub(api, runtime)
     api.setInterval(() => {
       void (async () => {
@@ -402,7 +406,8 @@ async function connectTwitch(api: any) {
   try {
     const token = await authorizeWithDeviceCode(api, clientId)
     const validated = await validateToken(api, token)
-    await chooseReward(api, validated.token, validated.userId)
+    const reward = await chooseReward(api, validated.token, validated.userId)
+    if (!reward) return
     if (activeRuntime) {
       if (activeRuntime.socket) activeRuntime.socket.onclose = null
       activeRuntime.socket?.close()
@@ -412,6 +417,20 @@ async function connectTwitch(api: any) {
   } catch (error) {
     api.logger.error('Twitch authorization failed', error)
     await api.notifications.error('Не удалось подключить Twitch: ' + (error instanceof Error ? error.message : String(error)))
+  }
+}
+
+async function configureReward(api: any) {
+  try {
+    const stored = await api.storage.get<TwitchToken>(AUTH_KEY)
+    if (!stored?.accessToken) {
+      await api.notifications.error('Сначала подключи Twitch.')
+      return
+    }
+    const validated = await validateToken(api, stored)
+    await chooseReward(api, validated.token, validated.userId, true)
+  } catch (error) {
+    await api.notifications.error('Не удалось настроить награду: ' + (error instanceof Error ? error.message : String(error)))
   }
 }
 
@@ -437,6 +456,13 @@ export default defineAddon({
       description: 'Авторизовать Twitch и слушать Channel Points',
       icon: 'gift',
       onClick: ({ api }) => connectTwitch(api),
+    },
+    {
+      id: 'pulseredeem-configure-reward',
+      label: 'Настроить награду',
+      description: 'Выбрать или создать награду Channel Points для заявок',
+      icon: 'gift',
+      onClick: ({ api }) => configureReward(api),
     },
     {
       id: 'pulseredeem-disconnect-twitch',
