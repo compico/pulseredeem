@@ -25,11 +25,7 @@ type Runtime = {
   reconnectTimer: (() => void) | null
   pendingRedemptions: Set<string>
   seenRedemptions: Set<string>
-  twitchQueue: Array<{ trackId: string; albumId?: string }>
-  activeTwitchTrackId: string | null
-  activeTwitchTrackStarted: boolean
-  trackUnsubscribe: (() => void) | null
-}
+ }
 
 let activeRuntime: Runtime | null = null
 
@@ -234,41 +230,11 @@ async function subscribeToRedemptions(api: any, token: TwitchToken, broadcasterI
   api.logger.info('Subscribed to Twitch Channel Points redemptions')
 }
 
-function enqueueTwitchTrack(api: any, runtime: Runtime, track: { trackId: string; albumId?: string }) {
-  runtime.twitchQueue.push(track)
-
-  const playNext = () => {
-    if (runtime.activeTwitchTrackId || runtime.twitchQueue.length === 0) return
-    const next = runtime.twitchQueue.shift()!
-    const entityId = next.albumId ? next.trackId + ':' + next.albumId : next.trackId
-    runtime.activeTwitchTrackId = entityId
-    runtime.activeTwitchTrackStarted = false
-    api.client.addTrackToQueueById(next.trackId, {
-      albumId: next.albumId,
-      position: 'next',
-    })
-  }
-
-  if (!runtime.trackUnsubscribe && typeof api.client.onCurrentTrackChange === 'function') {
-    runtime.trackUnsubscribe = api.client.onCurrentTrackChange((current: any) => {
-      const currentId = typeof current?.id === 'string' ? current.id : null
-
-      if (!runtime.activeTwitchTrackId) return
-      if (currentId === runtime.activeTwitchTrackId) {
-        runtime.activeTwitchTrackStarted = true
-        return
-      }
-
-      // Ignore initial/current-track notifications until this request actually starts.
-      if (!runtime.activeTwitchTrackStarted) return
-
-      runtime.activeTwitchTrackId = null
-      runtime.activeTwitchTrackStarted = false
-      playNext()
-    })
-  }
-
-  playNext()
+function enqueueTwitchTrack(api: any, _runtime: Runtime, track: { trackId: string; albumId?: string }) {
+  api.client.addTrackToQueueById(track.trackId, {
+    albumId: track.albumId,
+    position: 'last',
+  })
 }
 
 async function handleRedemption(api: any, runtime: Runtime, event: Record<string, any>) {
@@ -453,11 +419,7 @@ export default defineAddon({
       reconnectTimer: null,
       pendingRedemptions: new Set(),
       seenRedemptions: seen,
-      twitchQueue: [],
-      activeTwitchTrackId: null,
-      activeTwitchTrackStarted: false,
-      trackUnsubscribe: null,
-    }
+     }
 
     void (async () => {
       const saved = await api.storage.get<string[]>(SEEN_KEY) || []
@@ -470,7 +432,6 @@ export default defineAddon({
       activeRuntime.stopped = true
       activeRuntime.reconnectTimer?.()
       activeRuntime.socket?.close()
-      activeRuntime.trackUnsubscribe?.()
       activeRuntime = null
     }
   },
