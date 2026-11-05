@@ -25,7 +25,7 @@ type Runtime = {
   reconnectTimer: (() => void) | null
   pendingRedemptions: Set<string>
   seenRedemptions: Set<string>
- }
+}
 
 let activeRuntime: Runtime | null = null
 
@@ -230,7 +230,7 @@ async function subscribeToRedemptions(api: any, token: TwitchToken, broadcasterI
   api.logger.info('Subscribed to Twitch Channel Points redemptions')
 }
 
-function enqueueTwitchTrack(api: any, _runtime: Runtime, track: { trackId: string; albumId?: string }) {
+function enqueueTwitchTrack(api: any, track: { trackId: string; albumId?: string }) {
   api.client.addTrackToQueueById(track.trackId, {
     albumId: track.albumId,
     position: 'last',
@@ -253,7 +253,7 @@ async function handleRedemption(api: any, runtime: Runtime, event: Record<string
 
   runtime.pendingRedemptions.add(redemptionId)
   try {
-    enqueueTwitchTrack(api, runtime, parsed)
+    enqueueTwitchTrack(api, parsed)
 
     runtime.seenRedemptions.add(redemptionId)
     const saved = await api.storage.get<string[]>(SEEN_KEY) || []
@@ -419,7 +419,7 @@ export default defineAddon({
       reconnectTimer: null,
       pendingRedemptions: new Set(),
       seenRedemptions: seen,
-     }
+    }
 
     void (async () => {
       const saved = await api.storage.get<string[]>(SEEN_KEY) || []
