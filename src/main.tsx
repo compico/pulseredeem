@@ -1,6 +1,5 @@
 import { defineAddon } from '@pulsesync/addon-sdk'
 import addonConfig from '../addon.config.mjs'
-import { settings } from './settings'
 import { parseYandexTrackUrl } from './yandex-url.js'
 
 const TWITCH_CLIENT_ID = 'kgyvur9w7qo4epu0free3n5ex2r1wd'
@@ -166,69 +165,44 @@ async function twitchApi(api: any, token: TwitchToken, url: string, init: Reques
   return data
 }
 
-async function chooseReward(api: any, token: TwitchToken, broadcasterId: string, force = false) {
-  const saved = await api.storage.get<{ id: string; title: string }>(REWARD_KEY)
-  if (saved?.id && !force) return saved
+const REWARD_TITLE = 'Заказать трек'
+const REWARD_COST = 500
+const REWARD_PROMPT = 'Вставь прямую ссылку на трек Яндекс Музыки'
 
+async function ensureReward(api: any, token: TwitchToken, broadcasterId: string) {
   const result = await twitchApi(api, token, TWITCH_API + '/channel_points/custom_rewards?broadcaster_id=' + encodeURIComponent(broadcasterId))
   const rewards = (Array.isArray(result.data) ? result.data : []) as TwitchReward[]
-  const createValue = '__create_new_reward__'
-  const selected = await api.modals.form({
-    title: 'Награда для PulseRedeem',
-    message: 'Выбери награду Channel Points, за которую зрители смогут отправлять ссылки на треки. Можно создать отдельную награду.',
-    confirmLabel: 'Продолжить',
-    cancelLabel: 'Позже',
-    fields: [{
-      name: 'rewardId',
-      label: 'Награда канала',
-      type: 'select',
-      required: true,
-      options: [
-        ...rewards.map(reward => ({ value: reward.id, label: reward.title + ' — ' + reward.cost + ' баллов' })),
-        { value: createValue, label: '＋ Создать новую награду…' },
-      ],
-      value: rewards[0]?.id || createValue,
-    }],
-  })
-  if (!selected) return null
+  let reward = rewards.find(item => item.title === REWARD_TITLE) as (TwitchReward & { is_user_input_required?: boolean }) | undefined
 
-  const choice = String((selected as any).rewardId || '')
-  if (choice !== createValue) {
-    const reward = rewards.find(item => item.id === choice)
-    if (!reward) throw new Error('Выбранная награда не найдена в ответе Twitch')
-    const value = { id: reward.id, title: reward.title }
-    await api.storage.set(REWARD_KEY, value)
-    await api.notifications.info('Для PulseRedeem выбрана награда «' + reward.title + '».')
-    return value
+  if (!reward) {
+    const created = await twitchApi(api, token, TWITCH_API + '/channel_points/custom_rewards?broadcaster_id=' + encodeURIComponent(broadcasterId), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        title: REWARD_TITLE,
+        cost: REWARD_COST,
+        prompt: REWARD_PROMPT,
+        is_user_input_required: true,
+      }),
+    })
+    reward = created.data?.[0] as TwitchReward | undefined
+    if (!reward?.id) throw new Error('Twitch не вернул созданную награду')
+    await api.notifications.info('Создана награда Twitch «' + REWARD_TITLE + '» за ' + REWARD_COST + ' баллов.')
+  } else if (!(reward as any).is_user_input_required) {
+    const updated = await twitchApi(api, token, TWITCH_API + '/channel_points/custom_rewards?broadcaster_id=' + encodeURIComponent(broadcasterId) + '&id=' + encodeURIComponent(reward.id), {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        cost: REWARD_COST,
+        prompt: REWARD_PROMPT,
+        is_user_input_required: true,
+      }),
+    })
+    reward = updated.data?.[0] as TwitchReward || reward
   }
 
-  const created = await api.modals.form({
-    title: 'Создать награду Channel Points',
-    message: 'PulseRedeem создаст награду с обязательным текстовым вводом, чтобы зритель мог вставить ссылку на трек Яндекс Музыки.',
-    confirmLabel: 'Создать награду',
-    cancelLabel: 'Отмена',
-    fields: [
-      { name: 'title', label: 'Название награды', type: 'text', value: 'Заказать трек', required: true, minLength: 1, maxLength: 45 },
-      { name: 'cost', label: 'Стоимость в баллах', type: 'slider', value: 500, min: 1, max: 100000, step: 1 },
-      { name: 'prompt', label: 'Подсказка для зрителя', type: 'text', value: 'Вставь ссылку на трек Яндекс Музыки', required: true, minLength: 1, maxLength: 200 },
-    ],
-  })
-  if (!created) return null
-  const title = String((created as any).title || '').trim()
-  const prompt = String((created as any).prompt || '').trim()
-  const cost = Math.floor(Number((created as any).cost))
-  if (!title || !prompt || !Number.isFinite(cost) || cost < 1) throw new Error('Проверь название, подсказку и стоимость награды')
-
-  const response = await twitchApi(api, token, TWITCH_API + '/channel_points/custom_rewards?broadcaster_id=' + encodeURIComponent(broadcasterId), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ title, cost, prompt, is_user_input_required: true }),
-  })
-  const reward = response.data?.[0] as TwitchReward | undefined
-  if (!reward?.id) throw new Error('Twitch не вернул созданную награду')
-  const value = { id: reward.id, title: reward.title || title }
+  const value = { id: reward.id, title: reward.title || REWARD_TITLE }
   await api.storage.set(REWARD_KEY, value)
-  await api.notifications.info('Награда «' + value.title + '» создана и выбрана для PulseRedeem.')
   return value
 }
 
@@ -259,8 +233,6 @@ async function subscribeToRedemptions(api: any, token: TwitchToken, broadcasterI
 async function handleRedemption(api: any, runtime: Runtime, event: Record<string, any>) {
   const redemptionId = String(event.id || '')
   if (!redemptionId || runtime.seenRedemptions.has(redemptionId) || runtime.pendingRedemptions.has(redemptionId)) return
-
-  if (settings.store.enabled === false) return
 
   const rewardId = String(event.reward?.id || '')
   const selectedReward = await api.storage.get<{ id: string; title: string }>(REWARD_KEY)
@@ -370,9 +342,9 @@ async function startSession(api: any, runtime: Runtime) {
   if (!stored?.accessToken) return
   try {
     const validated = await validateToken(api, stored)
-    const reward = await chooseReward(api, validated.token, validated.userId)
+    const reward = await ensureReward(api, validated.token, validated.userId)
     if (!reward) {
-      await api.notifications.info('Выбор награды отложен. Нажми «Настроить награду», чтобы завершить настройку.')
+      await api.notifications.info('Не удалось создать награду Twitch.')
       return
     }
     await connectEventSub(api, runtime)
@@ -405,8 +377,7 @@ async function connectTwitch(api: any) {
   try {
     const token = await authorizeWithDeviceCode(api, clientId)
     const validated = await validateToken(api, token)
-    const reward = await chooseReward(api, validated.token, validated.userId)
-    if (!reward) return
+    await ensureReward(api, validated.token, validated.userId)
     if (activeRuntime) {
       if (activeRuntime.socket) activeRuntime.socket.onclose = null
       activeRuntime.socket?.close()
@@ -419,59 +390,9 @@ async function connectTwitch(api: any) {
   }
 }
 
-async function configureReward(api: any) {
-  try {
-    const stored = await api.storage.get<TwitchToken>(AUTH_KEY)
-    if (!stored?.accessToken) {
-      await api.notifications.error('Сначала подключи Twitch.')
-      return
-    }
-    const validated = await validateToken(api, stored)
-    const reward = await chooseReward(api, validated.token, validated.userId, true)
-    if (reward && activeRuntime && !activeRuntime.socket) await connectEventSub(api, activeRuntime)
-  } catch (error) {
-    await api.notifications.error('Не удалось настроить награду: ' + (error instanceof Error ? error.message : String(error)))
-  }
-}
-
-async function disconnectTwitch(api: any) {
-  if (activeRuntime) {
-    activeRuntime.reconnectTimer?.()
-    if (activeRuntime.socket) activeRuntime.socket.onclose = null
-    activeRuntime.socket?.close()
-    activeRuntime.socket = null
-  }
-  await api.storage.remove(AUTH_KEY)
-  await api.notifications.info('Токен Twitch удалён из PulseRedeem.')
-}
-
 export default defineAddon({
   id: addonConfig.id,
   name: addonConfig.name,
-  settings,
-  headerActions: [
-    {
-      id: 'pulseredeem-connect-twitch',
-      label: 'Подключить Twitch',
-      description: 'Авторизовать Twitch и слушать Channel Points',
-      icon: 'gift',
-      onClick: ({ api }) => connectTwitch(api),
-    },
-    {
-      id: 'pulseredeem-configure-reward',
-      label: 'Настроить награду',
-      description: 'Выбрать или создать награду Channel Points для заявок',
-      icon: 'gift',
-      onClick: ({ api }) => configureReward(api),
-    },
-    {
-      id: 'pulseredeem-disconnect-twitch',
-      label: 'Отключить Twitch',
-      description: 'Удалить сохранённый токен Twitch',
-      icon: 'close',
-      onClick: ({ api }) => disconnectTwitch(api),
-    },
-  ],
   start(api) {
     const seen = new Set<string>()
     activeRuntime = {
