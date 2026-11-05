@@ -1,15 +1,5 @@
-import { defineAddonSettings, SettingType } from '@pulsesync/addon-sdk'
+import { defineAddonSettings } from '@pulsesync/addon-sdk'
 
-export const settings = defineAddonSettings([
-  {
-    title: 'Twitch',
-    items: {
-      clientId: {
-        type: SettingType.STRING,
-        name: 'Twitch Client ID',
-        description: 'Client ID приложения Twitch. Зарегистрируй приложение как Public client; Client Secret не нужен.',
-        default: '',
-      },
-    },
-  },
-])
+// OAuth Client ID is a public identifier and is built into the addon.
+// Keep the settings page reserved for integration controls supplied by the host UI.
+export const settings = defineAddonSettings([])
