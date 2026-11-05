@@ -235,63 +235,19 @@ function enqueueTwitchTrack(api: any, track: { trackId: string; albumId?: string
   if (typeof client?.addTrackToQueueById !== 'function') {
     throw new Error('PulseSync не предоставляет API добавления трека в очередь')
   }
-  if (typeof client?.getQueueSnapshot !== 'function') {
-    throw new Error('PulseSync не предоставляет API чтения очереди')
-  }
 
-  const snapshot = client.getQueueSnapshot()
-  const items = Array.isArray(snapshot?.items) ? snapshot.items : []
-  let playerSnapshot: any = null
-  let playerSnapshotError: string | null = null
-  if (typeof client.getPlayerSnapshot === 'function') {
-    try {
-      playerSnapshot = client.getPlayerSnapshot()
-    } catch (error) {
-      playerSnapshotError = error instanceof Error ? error.message : String(error)
-    }
-  }
-  let playerState: any = null
-  let playerStateError: string | null = null
-  if (typeof client.getState === 'function') {
-    try {
-      playerState = client.getState()
-    } catch (error) {
-      playerStateError = error instanceof Error ? error.message : String(error)
-    }
-  }
-  let currentTrack: any = null
-  try {
-    currentTrack = typeof client.getCurrentTrack === 'function' ? client.getCurrentTrack() : null
-  } catch {}
-  const rawQueue = typeof client.getQueue === 'function' ? client.getQueue() : undefined
-  const currentIndex = snapshot?.currentIndex
-  const hasNextTrack = typeof currentIndex === 'number'
-    && Number.isInteger(currentIndex)
-    && currentIndex >= 0
-    && currentIndex + 1 < items.length
-  const position = hasNextTrack ? 'next' : 'last'
-
+  // Wave/context queues can contain a long list of generated tracks.
+  // Appending to the end may leave a Twitch request far behind that list.
+  // Always inject immediately after the currently playing track.
   api.logger.info('Queue insertion requested', {
     trackId: track.trackId,
     redemptionId,
-    position,
-    currentIndex: typeof currentIndex === 'number' && Number.isFinite(currentIndex) ? currentIndex : null,
-    queueLength: items.length,
-    nextTrackId: hasNextTrack ? String(items[currentIndex + 1]?.id || '') : null,
-    playerSnapshotAvailable: typeof client.getPlayerSnapshot === 'function',
-    playerSnapshot,
-    playerSnapshotError,
-    playerStateAvailable: Boolean(playerState),
-    playerStateKeys: playerState && typeof playerState === 'object' ? Object.keys(playerState) : [],
-    playerStateError,
-    isPlaying: typeof client.isPlaying === 'function' ? client.isPlaying() : null,
-    currentTrackId: currentTrack?.id ? String(currentTrack.id) : null,
-    rawQueueLength: Array.isArray(rawQueue) ? rawQueue.length : null,
+    position: 'next',
   })
 
   client.addTrackToQueueById(track.trackId, {
     albumId: track.albumId,
-    position,
+    position: 'next',
   })
 }
 
