@@ -1,5 +1,14 @@
-import { defineAddonSettings } from '@pulsesync/addon-sdk'
+import { defineAddonSettings, SettingType } from '@pulsesync/addon-sdk'
 
-// OAuth Client ID is a public identifier and is built into the addon.
-// Keep the settings page reserved for integration controls supplied by the host UI.
-export const settings = defineAddonSettings([])
+export const settings = defineAddonSettings([
+  {
+    title: 'Интеграции',
+    items: {
+      enabled: {
+        type: SettingType.BOOLEAN,
+        name: 'Обрабатывать заявки Twitch Channel Points',
+        default: true,
+      },
+    },
+  },
+])
