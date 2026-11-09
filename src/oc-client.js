@@ -78,6 +78,8 @@ export function createOcClient({ fetch, baseUrl = DEFAULT_BASE_URL, timeoutMs = 
       return { item: parseItem(data.item), resend: data.resend === true };
     },
     async started(id) { await request('POST', '/started', { id }); },
+    /** Состояние плеера для виджета. Пустой объект/без trackId — «ничего не играет». */
+    async nowPlaying(state) { await request('POST', '/nowplaying', state); },
     async failed(id, reason) { await request('POST', '/failed', { id, reason: String(reason || '').slice(0, 200) }); },
   };
 }

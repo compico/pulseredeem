@@ -1,10 +1,12 @@
 import { defineAddon, IconButton } from '@pulsesync/addon-sdk'
 import addonConfig from '../addon.config.mjs'
 import { createDispatcher } from './dispatcher.js'
+import { createNowPlayingPublisher } from './nowplaying.js'
 import { createOcClient, DEFAULT_BASE_URL } from './oc-client.js'
 import { createPlayer } from './player.js'
 
 const POLL_MS = 3000
+const PUBLISH_CHECK_MS = 1000 // публикатор сам решает, слать ли состояние (смена/перемотка сразу, иначе раз в 5 с)
 const OC_HINT = 'Проверьте, что Overlay Composer запущен, плагин «Заявки на треки» установлен и ему выданы разрешения.'
 
 let showStatus: (() => void) | null = null
@@ -67,12 +69,26 @@ export default defineAddon({
       : null
     if (!unsubscribe) api.logger.warn('onQueueChange недоступен: старт трека не будет подтверждаться, заявки завершатся по таймауту')
 
+    // Состояние плеера для виджета «Плеер с заявками». Без этого API заявки работают как обычно.
+    let publisher: ReturnType<typeof createNowPlayingPublisher> | null = null
+    let unsubscribePlayer: (() => void) | null = null
+    if (player.hasPlayerState) {
+      publisher = createNowPlayingPublisher({ client, player, log: api.logger })
+      unsubscribePlayer = player.onPlayerChange(() => { void publisher?.update() })
+      void publisher.update()
+      api.setInterval(() => { void publisher?.update() }, PUBLISH_CHECK_MS)
+    } else {
+      api.logger.warn('getPlayerSnapshot недоступен: виджет не увидит текущий трек')
+    }
+
     void dispatcher.tick()
     api.setInterval(() => { void dispatcher.tick() }, POLL_MS)
 
     return () => {
       dispatcher.stop()
+      publisher?.stop()
       unsubscribe?.()
+      unsubscribePlayer?.()
       showStatus = null
     }
   },
