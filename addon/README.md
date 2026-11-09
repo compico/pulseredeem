@@ -1,5 +1,5 @@
 # PulseRedeem addon assets
 
 This directory is copied into the built PulseSync addon unchanged.
-The settings schema is currently empty; Twitch credentials and reward settings
-will be added here when the Twitch integration is implemented.
+The settings schema is currently empty: the addon has no settings; Twitch and
+rewards are configured in Overlay Composer (the `music` plugin).
