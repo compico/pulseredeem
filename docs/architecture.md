@@ -10,6 +10,13 @@
 3. `onQueueChange`: индекс сдвинулся и `items[currentIndex].id === trackId` → `POST /started {id}`.
 4. Ошибка вставки, негодная заявка или 30 минут без старта → `POST /failed {id, reason}`.
 
+## Награда по отыгрышу и пульт
+
+Заявка: `queued → sent → playing → played | failed`. `POST /started` переводит в `playing` (награда ещё не выполнена), `POST /played`
+выполняет её, `POST /failed` отменяет (баллы возвращаются). Диспетчер ведёт две заявки одновременно: одну играющую
+и одну вставленную и ждущую старта; подтверждения уходят строго по порядку.
+Команды пульта забирает `src/controls.js`: `GET /commands` → `POST /commands/done` (до исполнения) → действие в PulseSync.
+
 ## Состояние плеера для виджета
 
 `getPlayerSnapshot()` → `POST /plugins/music/api/nowplaying` `{trackId, title, artists[], cover, durationMs, positionMs, playing}`.
