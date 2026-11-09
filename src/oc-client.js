@@ -4,6 +4,7 @@
 export const DEFAULT_BASE_URL = 'http://127.0.0.1:8000';
 export const API_PATH = '/plugins/music/api';
 
+export const COMMANDS = new Set(['play', 'pause', 'toggle', 'skip', 'skip_ban']);
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost']);
 // Для этих кодов повтор бессмысленен: заявка не принята как есть, и результат не изменится.
 const FINAL_STATUSES = new Set([400, 404, 409]);
@@ -78,6 +79,25 @@ export function createOcClient({ fetch, baseUrl = DEFAULT_BASE_URL, timeoutMs = 
       return { item: parseItem(data.item), resend: data.resend === true };
     },
     async started(id) { await request('POST', '/started', { id }); },
+    /** Трек отыгран: OC выполнит награду. */
+    async played(id) { await request('POST', '/played', { id }); },
+    /** Заявки, которые аддон начал играть до перезапуска. */
+    async playing() {
+      const data = await request('GET', '/playing');
+      if (!Array.isArray(data?.items)) throw new OcError('OC вернул неожиданный ответ');
+      return data.items.map(parseItem).filter(Boolean);
+    },
+    /** Команды пульта, ещё не принятые аддоном (по возрастанию id). */
+    async commands() {
+      const data = await request('GET', '/commands');
+      if (!Array.isArray(data?.commands)) throw new OcError('OC вернул неожиданный ответ');
+      return data.commands
+        .filter(c => c && Number.isSafeInteger(c.id) && c.id > 0 && COMMANDS.has(c.action))
+        .map(c => ({ id: c.id, action: c.action }))
+        .sort((a, b) => a.id - b.id);
+    },
+    /** Принять команду (до исполнения: она будет выполнена не более одного раза). */
+    async commandDone(id) { await request('POST', '/commands/done', { id }); },
     /** Состояние плеера для виджета. Пустой объект/без trackId — «ничего не играет». */
     async nowPlaying(state) { await request('POST', '/nowplaying', state); },
     async failed(id, reason) { await request('POST', '/failed', { id, reason: String(reason || '').slice(0, 200) }); },
