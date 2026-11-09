@@ -1,12 +1,14 @@
 import { defineAddon, IconButton } from '@pulsesync/addon-sdk'
 import addonConfig from '../addon.config.mjs'
+import { createController } from './controls.js'
 import { createDispatcher } from './dispatcher.js'
 import { createNowPlayingPublisher } from './nowplaying.js'
 import { createOcClient, DEFAULT_BASE_URL } from './oc-client.js'
 import { createPlayer } from './player.js'
 
 const POLL_MS = 3000
-const PUBLISH_CHECK_MS = 1000 // публикатор сам решает, слать ли состояние (смена/перемотка сразу, иначе раз в 5 с)
+// Раз в секунду: опрос команд пульта, позиция играющей заявки и проверка публикатора состояния (он сам решает, слать ли).
+const PUBLISH_CHECK_MS = 1000
 const OC_HINT = 'Проверьте, что Overlay Composer запущен, плагин «Заявки на треки» установлен и ему выданы разрешения.'
 
 let showStatus: (() => void) | null = null
@@ -41,6 +43,7 @@ export default defineAddon({
     const dispatcher = createDispatcher({
       client,
       player,
+      trackCompletion: player.hasPlayerState,
       log: api.logger,
       notify: event => {
         if (event.type === 'connection') {
@@ -48,6 +51,8 @@ export default defineAddon({
           else void api.notifications.error('PulseRedeem: ' + event.error + '. ' + OC_HINT)
         } else if (event.type === 'started') {
           api.logger.info('Заявка запущена', { id: event.item.id })
+        } else if (event.type === 'played') {
+          api.logger.info('Заявка отыграна, награда выполнена', { id: event.item.id })
         } else if (event.type === 'failed') {
           void api.notifications.error('Заявка от ' + (event.item.user || 'зрителя') + ' отклонена: ' + event.reason + '. Баллы возвращены.')
         } else if (event.type === 'dropped') {
@@ -59,6 +64,7 @@ export default defineAddon({
     showStatus = () => {
       const s = dispatcher.status()
       const line = s.connected === false ? 'нет связи с Overlay Composer: ' + s.lastError
+        : s.playingId ? 'играет заявка #' + s.playingId + (s.phase === 'waiting' ? ', следующая ждёт очереди в плеере' : '')
         : s.phase === 'waiting' ? 'заявка #' + s.activeId + ' ждёт своей очереди в плеере'
         : s.connected ? 'связь есть, заявок нет' : 'проверяю связь…'
       void api.notifications.info('PulseRedeem: ' + line, { durationMs: 6000 })
@@ -74,18 +80,37 @@ export default defineAddon({
     let unsubscribePlayer: (() => void) | null = null
     if (player.hasPlayerState) {
       publisher = createNowPlayingPublisher({ client, player, log: api.logger })
-      unsubscribePlayer = player.onPlayerChange(() => { void publisher?.update() })
-      void publisher.update()
-      api.setInterval(() => { void publisher?.update() }, PUBLISH_CHECK_MS)
+      // Снимок читаем сами: аргумент слушателя в SDK не документирован. Позицию играющей заявки проверяем и по событиям, и по таймеру.
+      const onPlayer = () => {
+        let snapshot: unknown
+        try { snapshot = player.playerSnapshot() } catch { return }
+        void publisher?.update(snapshot)
+        void dispatcher.observePlayer(snapshot)
+      }
+      unsubscribePlayer = player.onPlayerChange(onPlayer)
+      onPlayer()
+      api.setInterval(onPlayer, PUBLISH_CHECK_MS)
     } else {
-      api.logger.warn('getPlayerSnapshot недоступен: виджет не увидит текущий трек')
+      api.logger.warn('getPlayerSnapshot недоступен: виджет не увидит текущий трек, а награда выполняется на старте трека, а не по окончании')
     }
+
+    // Команды пульта (пауза, пропуск, пропуск с баном).
+    const controller = createController({
+      client,
+      player,
+      log: api.logger,
+      notify: event => {
+        if (event.type === 'command-failed') void api.notifications.error('Команда «' + event.action + '» не выполнена: ' + event.error)
+      },
+    })
+    api.setInterval(() => { void controller.tick() }, PUBLISH_CHECK_MS)
 
     void dispatcher.tick()
     api.setInterval(() => { void dispatcher.tick() }, POLL_MS)
 
     return () => {
       dispatcher.stop()
+      controller.stop()
       publisher?.stop()
       unsubscribe?.()
       unsubscribePlayer?.()
