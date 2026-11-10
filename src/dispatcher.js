@@ -7,16 +7,23 @@
 import { durationOf, normalizeTrackId, positionOf } from './nowplaying.js';
 
 export const START_TIMEOUT_MS = 30 * 60 * 1000;
+// Вставка «следующим» не подтверждается самим SDK, а очередь «Моей волны» может вытеснить вставленный трек:
+// после вставки проверяем, что он стоит в очереди после текущего, и повторяем вставку, если нет.
+export const VERIFY_GRACE_MS = 1500;
+export const MAX_INSERT_ATTEMPTS = 3;
 export const END_TOLERANCE_MS = 5000;
 
 /** За сколько до конца трек считается доигранным (для коротких треков — не более 20% длительности). */
 export const endTolerance = durationMs => Math.min(END_TOLERANCE_MS, durationMs * 0.2);
 
+// id элемента очереди бывает «трек» или «трек:альбом» (вставленный и ещё не загруженный элемент): сравниваем по номеру трека.
+const idOf = entry => normalizeTrackId(entry?.id);
+
 /** Трек стал текущим: индекс сдвинулся относительно момента вставки и на нём лежит ожидаемый trackId. */
 export function isStarted(snapshot, active) {
   const index = snapshot?.currentIndex;
   if (!Number.isInteger(index) || index === active.startIndex || !Array.isArray(snapshot?.items)) return false;
-  return String(snapshot.items[index]?.id ?? '') === active.item.trackId;
+  return idOf(snapshot.items[index]) === active.item.trackId;
 }
 
 const message = error => (error instanceof Error ? error.message : String(error));
@@ -37,6 +44,7 @@ export function createDispatcher({ client, player, now = Date.now, startTimeoutM
   let connected = null;
   let lastError = '';
   let waitingForPlayer = false;
+  let lastBlocker = null;
   // Без метода canInsert (в тестах, в старых адаптерах) считаем, что вставлять можно.
   const canInsert = () => (typeof player.canInsert === 'function' ? player.canInsert() : true);
 
@@ -129,7 +137,7 @@ export function createDispatcher({ client, player, now = Date.now, startTimeoutM
     }
     // Состояние выставляем до вставки: PulseSync может вызвать onQueueChange синхронно.
     phase = 'waiting';
-    active = { item, startIndex, at: now() };
+    active = { item, startIndex, at: now(), attempts: 1, lastInsertAt: now() };
     try {
       await player.addNext(item.trackId, item.albumId);
       logger.info('Заявка вставлена следующей', { id: item.id, trackId: item.trackId });
@@ -138,6 +146,47 @@ export function createDispatcher({ client, player, now = Date.now, startTimeoutM
       active = null;
       report('failed', item, 'не удалось добавить трек в очередь: ' + message(error));
     }
+  }
+
+  let reinserting = false;
+
+  function failWaiting(reason) {
+    report('failed', active.item, reason);
+    phase = 'idle';
+    active = null;
+  }
+
+  /**
+   * Пока заявка ждёт старта: трек должен стоять в очереди после текущего. Если его там нет (вытеснила «Моя волна»,
+   * перестроилась очередь), вставляем снова, не чаще раза в VERIFY_GRACE_MS и не более MAX_INSERT_ATTEMPTS раз.
+   * Если трек стоит где-то дальше в очереди, повторно не вставляем: так он не сыграет дважды.
+   */
+  async function verifyQueued(snapshot) {
+    if (stopped || phase !== 'waiting' || !active || reinserting) return;
+    const index = snapshot?.currentIndex;
+    if (!Number.isInteger(index) || !Array.isArray(snapshot?.items)) return;
+    if (snapshot.items.slice(index + 1).some(entry => idOf(entry) === active.item.trackId)) return;
+    if (now() - active.lastInsertAt < VERIFY_GRACE_MS) return;
+    if (active.attempts >= MAX_INSERT_ATTEMPTS) {
+      failWaiting('плеер не удержал трек в очереди (очередь его вытеснила)');
+      return;
+    }
+    logger.warn('Трек не стоит в очереди после текущего', typeof player.diagnostics === 'function' ? player.diagnostics() : undefined);
+    reinserting = true;
+    active.attempts += 1;
+    active.lastInsertAt = now();
+    try {
+      await player.addNext(active.item.trackId, active.item.albumId);
+      logger.info('Трек не найден в очереди, вставлен повторно', { id: active.item.id, attempt: active.attempts });
+    } catch (error) {
+      if (active) failWaiting('не удалось добавить трек в очередь: ' + message(error));
+    } finally {
+      reinserting = false;
+    }
+  }
+
+  function readQueue() {
+    try { return player.snapshot(); } catch { return null; }
   }
 
   async function tick() {
@@ -153,17 +202,22 @@ export function createDispatcher({ client, player, now = Date.now, startTimeoutM
         if (reports.length) return;
       }
       if (phase === 'waiting') {
-        if (now() - active.at > startTimeoutMs) {
-          report('failed', active.item, 'трек не начал играть вовремя');
-          phase = 'idle';
-          active = null;
-          await flush();
-        }
+        await verifyQueued(readQueue());
+        if (phase === 'waiting' && now() - active.at > startTimeoutMs) failWaiting('трек не начал играть вовремя');
+        await flush();
         return;
       }
       // Пока в плеере нет загруженного трека, заявку не берём вовсе: она остаётся в очереди OC, а не зависает «отданной».
       waitingForPlayer = !canInsert();
-      if (waitingForPlayer) return;
+      if (waitingForPlayer) {
+        const why = typeof player.insertBlocker === 'function' ? player.insertBlocker() : '';
+        if (why !== lastBlocker) {
+          lastBlocker = why;
+          logger.warn('Вставка отложена: ' + why, typeof player.diagnostics === 'function' ? player.diagnostics() : undefined);
+        }
+        return;
+      }
+      lastBlocker = null;
       let next;
       try {
         next = await client.next();
@@ -184,7 +238,10 @@ export function createDispatcher({ client, player, now = Date.now, startTimeoutM
 
   /** Вызывать на каждое изменение очереди PulseSync: подтверждает старт вставленного трека. */
   function observe(snapshot) {
-    if (stopped || phase !== 'waiting' || !isStarted(snapshot, active)) return Promise.resolve();
+    if (stopped || phase !== 'waiting') return Promise.resolve();
+    if (!isStarted(snapshot, active)) {
+      return verifyQueued(snapshot).then(() => (reports.length ? tick() : undefined));
+    }
     const { item } = active;
     phase = 'idle';
     active = null;
@@ -217,6 +274,6 @@ export function createDispatcher({ client, player, now = Date.now, startTimeoutM
     observe,
     observePlayer,
     stop() { stopped = true; },
-    status: () => ({ phase, waitingForPlayer, connected, lastError, activeId: active?.item.id ?? null, playingId: playing?.item.id ?? null, pendingReports: reports.length, nextReport: reports[0]?.kind ?? null }),
+    status: () => ({ phase, waitingForPlayer, connected, lastError, activeId: active?.item.id ?? null, attempts: active?.attempts ?? 0, playingId: playing?.item.id ?? null, pendingReports: reports.length, nextReport: reports[0]?.kind ?? null }),
   };
 }
