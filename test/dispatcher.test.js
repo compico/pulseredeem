@@ -310,3 +310,17 @@ test('track present after the current one is not inserted twice', async () => {
   assert.equal(s.inserted.length, 1);
   assert.equal(s.d.status().phase, 'waiting');
 });
+
+test('start is confirmed by the player when the wave queue index does not move', async () => {
+  const s = setup({ items: [item(1)] });
+  await s.d.tick();
+  await s.d.observe(waveSnap(['cur', '10:1']));
+  assert.equal(s.status(1), 'sent');
+  await s.d.observePlayer(ps('cur', 50));
+  assert.equal(s.status(1), 'sent', 'играет чужой трек');
+  await s.d.observePlayer(ps('10', 1, 200, false));
+  assert.equal(s.status(1), 'sent', 'на паузе не считаем стартом');
+  await s.d.observePlayer(ps('10', 2));
+  assert.equal(s.status(1), 'playing');
+  assert.ok(s.calls.includes('started:1'));
+});

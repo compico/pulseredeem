@@ -242,6 +242,10 @@ export function createDispatcher({ client, player, now = Date.now, startTimeoutM
     if (!isStarted(snapshot, active)) {
       return verifyQueued(snapshot).then(() => (reports.length ? tick() : undefined));
     }
+    return confirmStart();
+  }
+
+  function confirmStart() {
     const { item } = active;
     phase = 'idle';
     active = null;
@@ -251,8 +255,14 @@ export function createDispatcher({ client, player, now = Date.now, startTimeoutM
 
   /** Вызывать на каждое изменение состояния плеера: следит за позицией играющей заявки. */
   function observePlayer(snapshot) {
-    if (stopped || !playing) return Promise.resolve();
+    if (stopped) return Promise.resolve();
     const id = normalizeTrackId(snapshot?.track?.id);
+    // В «Моей волне» индекс текущего трека в очереди не сдвигается (окно скользит), поэтому старт трека надёжнее подтверждать по плееру:
+    // в плеере играет ровно тот трек, который мы вставили.
+    if (phase === 'waiting' && active && id && id === active.item.trackId && playing?.item.trackId !== id && (snapshot?.isPlaying === true || snapshot?.status === 'playing')) {
+      return confirmStart();
+    }
+    if (!playing) return Promise.resolve();
     if (!id) return Promise.resolve();
     if (id !== playing.item.trackId) {
       finishPlaying(); // играет уже другой трек
