@@ -21,3 +21,6 @@ api.net предоставляет HTTP fetch/json/text. В публичных �
 
 `api.net.fetch(url, {method, headers, body, timeoutMs, signal})` ходит только по адресам из `allowedUrls`. Аддон использует
 `http://127.0.0.1:8000` (Overlay Composer). Формат записи для `http://` и доступность loopback нужно проверить в живом PulseSync.
+
+## `api.client` в аддоне асинхронный
+Методы `api.client` (`getQueueSnapshot`, `getPlayerSnapshot`, `getState`, …) в аддоне работают через RPC и возвращают **промисы**, хотя в `@pulsesync/yamusic-types` у `PulseSyncApi` они описаны как синхронные. Без `await` получается пустой объект (`{}` при `JSON.stringify`), `currentIndex` и `track` `undefined`. Подписки (`onQueueChange`, `onPlayerSnapshotChange`) локальные и синхронные. В консоли devtools Яндекс Музыки тот же API доступен синхронно как `window.pulsesyncApi`.

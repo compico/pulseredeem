@@ -28,8 +28,8 @@ function safeJson(value: unknown): string {
   }
   return JSON.stringify(walk(value, 5))
 }
-function safeTry(fn: () => unknown): unknown {
-  try { return fn() } catch (error) { return 'ошибка: ' + (error instanceof Error ? error.message : String(error)) }
+async function safeTry(fn: () => Promise<unknown>): Promise<unknown> {
+  try { return await fn() } catch (error) { return 'ошибка: ' + (error instanceof Error ? error.message : String(error)) }
 }
 
 let showStatus: (() => void) | null = null
@@ -104,7 +104,7 @@ export default defineAddon({
         : s.connected ? 'связь есть, заявок нет' : 'проверяю связь…'
       toast('info', 'PulseRedeem: ' + line, { durationMs: 6000 })
       // Одна JSON-строка в консоль: ПКМ по ней → Copy string contents. Работает и тогда, когда глобальный объект недоступен.
-      api.logger.info('PULSEREDEEM_DUMP ' + debug.dump())
+      void debug.dump().then(text => api.logger.info('PULSEREDEEM_DUMP ' + text))
     }
 
     const unsubscribe = typeof api.client.onQueueChange === 'function'
@@ -118,15 +118,15 @@ export default defineAddon({
     if (player.hasPlayerState) {
       publisher = createNowPlayingPublisher({ client, player, log: api.logger })
       // Снимок читаем сами: аргумент слушателя в SDK не документирован. Позицию играющей заявки проверяем и по событиям, и по таймеру.
-      const onPlayer = () => {
+      const onPlayer = async () => {
         let snapshot: unknown
-        try { snapshot = player.playerSnapshot() } catch { return }
+        try { snapshot = await player.playerSnapshot() } catch { return }
         void publisher?.update(snapshot)
         void dispatcher.observePlayer(snapshot)
       }
-      unsubscribePlayer = player.onPlayerChange(onPlayer)
-      onPlayer()
-      api.setInterval(onPlayer, PUBLISH_CHECK_MS)
+      unsubscribePlayer = player.onPlayerChange(() => { void onPlayer() })
+      void onPlayer()
+      api.setInterval(() => { void onPlayer() }, PUBLISH_CHECK_MS)
     } else {
       api.logger.warn('getPlayerSnapshot недоступен: виджет не увидит текущий трек, а награда выполняется на старте трека, а не по окончании')
     }
@@ -144,26 +144,26 @@ export default defineAddon({
 
     // Отладка из консоли devtools: copy(__pulseredeem.dump()) копирует состояние плеера и очереди одной JSON-строкой.
     const debug = {
-      dump: () => safeJson({
+      dump: async () => safeJson({
         version: addonConfig.version,
-        blocker: player.insertBlocker(),
+        blocker: await player.insertBlocker(),
         dispatcher: dispatcher.status(),
-        ...player.diagnostics(),
-        rawPlayer: safeTry(() => api.client.getPlayerSnapshot()),
-        rawQueue: safeTry(() => api.client.getQueueSnapshot()),
+        ...(await player.diagnostics()),
+        rawPlayer: await safeTry(async () => await api.client.getPlayerSnapshot()),
+        rawQueue: await safeTry(async () => await api.client.getQueueSnapshot()),
         // Старые методы SDK: вдруг снимки пусты, а состояние плеера доступно другим путём.
-        getState: safeTry(() => api.client.getState()),
-        getCurrentTrack: safeTry(() => api.client.getCurrentTrack()),
-        getQueue: safeTry(() => api.client.getQueue()),
-        getProgress: safeTry(() => api.client.getProgress()),
-        getDuration: safeTry(() => api.client.getDuration()),
+        getState: await safeTry(async () => await api.client.getState()),
+        getCurrentTrack: await safeTry(async () => await api.client.getCurrentTrack()),
+        getQueue: await safeTry(async () => await api.client.getQueue()),
+        getProgress: await safeTry(async () => await api.client.getProgress()),
+        getDuration: await safeTry(async () => await api.client.getDuration()),
         methods: Object.keys(api.client).slice(0, 80),
         at: new Date().toISOString(),
       }),
       // Раз в periodMs пишет в лог короткую строку состояния; remember: debug.stop().
       watch: (periodMs = 2000) => {
         debug.stop()
-        watchTimer = setInterval(() => api.logger.info('watch', safeJson({ blocker: player.insertBlocker(), ...player.diagnostics(), d: dispatcher.status() })), Math.max(500, periodMs))
+        watchTimer = setInterval(() => { void (async () => api.logger.info('watch', safeJson({ blocker: await player.insertBlocker(), ...(await player.diagnostics()), d: dispatcher.status() })))() }, Math.max(500, periodMs))
         return 'watch started'
       },
       stop: () => { if (watchTimer) clearInterval(watchTimer); watchTimer = null; return 'watch stopped' },
