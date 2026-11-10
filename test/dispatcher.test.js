@@ -275,3 +275,38 @@ test('adoption and confirmations still work while the player is idle', async () 
   await s.d.observePlayer(ps('10', 198));
   assert.equal(s.status(1), 'played', 'возврат/выполнение награды не зависит от готовности вставки');
 });
+
+test('isStarted matches composite queue ids', () => {
+  const a = { startIndex: 0, item: { trackId: '10' } };
+  assert.equal(isStarted(qsnap(1, '10:77'), a), true);
+  assert.equal(isStarted(qsnap(1, 10), a), true);
+});
+
+// Очередь «Моей волны»: вставленный трек отсутствует после текущего.
+const waveSnap = (ids, idx = 0) => ({ currentIndex: idx, items: ids.map(id => ({ id })) });
+
+test('track missing from the queue is re-inserted after the grace period, at most 3 times', async () => {
+  const s = setup({ items: [item(1)] });
+  await s.d.tick();
+  assert.equal(s.inserted.length, 1);
+  s.snap = waveSnap(['cur', 'w1', 'w2']);
+  await s.d.observe(s.snap);
+  assert.equal(s.inserted.length, 1, 'в паузу не повторяем');
+  s.t += 2000; await s.d.observe(s.snap);
+  assert.equal(s.inserted.length, 2);
+  s.t += 2000; await s.d.observe(s.snap);
+  assert.equal(s.inserted.length, 3);
+  s.t += 2000; await s.d.observe(s.snap);
+  assert.equal(s.status(1), 'failed');
+  assert.match(s.lastReason[1], /очеред/);
+  assert.equal(s.d.status().phase, 'idle');
+});
+
+test('track present after the current one is not inserted twice', async () => {
+  const s = setup({ items: [item(1)] });
+  await s.d.tick();
+  s.snap = waveSnap(['cur', '10:1', 'w2']);
+  s.t += 5000; await s.d.observe(s.snap); await s.d.tick();
+  assert.equal(s.inserted.length, 1);
+  assert.equal(s.d.status().phase, 'waiting');
+});

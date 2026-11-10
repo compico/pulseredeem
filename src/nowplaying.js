@@ -64,6 +64,7 @@ export function createNowPlayingPublisher({ client, player, now = Date.now, hear
   let inflight = false;
   let stopped = false;
   let failing = false;
+  let warnedUnusable = false;
   let retryAt = 0; // после сбоя не пытаемся чаще раза в heartbeatMs
 
   const expected = at => (last.playing ? last.positionMs + (at - last.at) : last.positionMs);
@@ -94,6 +95,11 @@ export function createNowPlayingPublisher({ client, player, now = Date.now, hear
       }
     }
     const body = toNowPlaying(snapshot);
+    if (!body && snapshot?.track && !warnedUnusable) {
+      warnedUnusable = true;
+      logger.warn('Трек плеера без пригодного id: виджет увидит «ничего не играет»', typeof player.diagnostics === 'function' ? player.diagnostics() : undefined);
+    }
+    if (body) warnedUnusable = false;
     const key = body ? body.trackId : '';
     const at = now();
     if (at < retryAt) return;
