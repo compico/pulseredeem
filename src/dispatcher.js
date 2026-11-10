@@ -36,6 +36,9 @@ export function createDispatcher({ client, player, now = Date.now, startTimeoutM
   const reports = []; // неотправленные подтверждения {kind: started|played|failed, item, reason}: уходят строго по порядку
   let connected = null;
   let lastError = '';
+  let waitingForPlayer = false;
+  // Без метода canInsert (в тестах, в старых адаптерах) считаем, что вставлять можно.
+  const canInsert = () => (typeof player.canInsert === 'function' ? player.canInsert() : true);
 
   function setConnected(ok, error) {
     lastError = ok ? '' : message(error);
@@ -158,6 +161,9 @@ export function createDispatcher({ client, player, now = Date.now, startTimeoutM
         }
         return;
       }
+      // Пока в плеере нет загруженного трека, заявку не берём вовсе: она остаётся в очереди OC, а не зависает «отданной».
+      waitingForPlayer = !canInsert();
+      if (waitingForPlayer) return;
       let next;
       try {
         next = await client.next();
@@ -211,6 +217,6 @@ export function createDispatcher({ client, player, now = Date.now, startTimeoutM
     observe,
     observePlayer,
     stop() { stopped = true; },
-    status: () => ({ phase, connected, lastError, activeId: active?.item.id ?? null, playingId: playing?.item.id ?? null, pendingReports: reports.length, nextReport: reports[0]?.kind ?? null }),
+    status: () => ({ phase, waitingForPlayer, connected, lastError, activeId: active?.item.id ?? null, playingId: playing?.item.id ?? null, pendingReports: reports.length, nextReport: reports[0]?.kind ?? null }),
   };
 }

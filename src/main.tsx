@@ -29,13 +29,20 @@ export default defineAddon({
   slots: { playerBarButton: StatusButton },
   start(api) {
     const text = (e: unknown) => (e instanceof Error ? e.message : String(e))
+    // Контейнеры уведомлений Яндекс Музыки монтируются не сразу: отказ показа не должен становиться необработанной ошибкой аддона.
+    const toast = (kind: 'info' | 'error', message: string, options?: { durationMs?: number }) => {
+      void Promise.resolve()
+        .then(() => (kind === 'info' ? api.notifications.info(message, options) : api.notifications.error(message)))
+        .catch(error => api.logger.warn('Уведомление не показано', text(error)))
+    }
+    let wasDisconnected = false
 
     let player
     try {
       player = createPlayer(api.client)
     } catch (error) {
       api.logger.error('PulseSync API недоступен', error)
-      void api.notifications.error(text(error))
+      toast('error', text(error))
       return
     }
 
@@ -47,16 +54,22 @@ export default defineAddon({
       log: api.logger,
       notify: event => {
         if (event.type === 'connection') {
-          if (event.connected) void api.notifications.info('PulseRedeem: связь с Overlay Composer есть.', { durationMs: 4000 })
-          else void api.notifications.error('PulseRedeem: ' + event.error + '. ' + OC_HINT)
+          // «Связь есть» показываем только после обрыва: при обычном старте это шум.
+          if (event.connected) {
+            if (wasDisconnected) toast('info', 'PulseRedeem: связь с Overlay Composer восстановлена.', { durationMs: 4000 })
+            wasDisconnected = false
+          } else {
+            wasDisconnected = true
+            toast('error', 'PulseRedeem: ' + event.error + '. ' + OC_HINT)
+          }
         } else if (event.type === 'started') {
           api.logger.info('Заявка запущена', { id: event.item.id })
         } else if (event.type === 'played') {
           api.logger.info('Заявка отыграна, награда выполнена', { id: event.item.id })
         } else if (event.type === 'failed') {
-          void api.notifications.error('Заявка от ' + (event.item.user || 'зрителя') + ' отклонена: ' + event.reason + '. Баллы возвращены.')
+          toast('error', 'Заявка от ' + (event.item.user || 'зрителя') + ' отклонена: ' + event.reason + '. Баллы возвращены.')
         } else if (event.type === 'dropped') {
-          void api.notifications.error('Overlay Composer не принял подтверждение заявки: ' + event.error)
+          toast('error', 'Overlay Composer не принял подтверждение заявки: ' + event.error)
         }
       },
     })
@@ -64,10 +77,11 @@ export default defineAddon({
     showStatus = () => {
       const s = dispatcher.status()
       const line = s.connected === false ? 'нет связи с Overlay Composer: ' + s.lastError
+        : s.waitingForPlayer ? 'в плеере ничего не загружено: заявки ждут, пока вы запустите трек'
         : s.playingId ? 'играет заявка #' + s.playingId + (s.phase === 'waiting' ? ', следующая ждёт очереди в плеере' : '')
         : s.phase === 'waiting' ? 'заявка #' + s.activeId + ' ждёт своей очереди в плеере'
         : s.connected ? 'связь есть, заявок нет' : 'проверяю связь…'
-      void api.notifications.info('PulseRedeem: ' + line, { durationMs: 6000 })
+      toast('info', 'PulseRedeem: ' + line, { durationMs: 6000 })
     }
 
     const unsubscribe = typeof api.client.onQueueChange === 'function'
@@ -100,7 +114,7 @@ export default defineAddon({
       player,
       log: api.logger,
       notify: event => {
-        if (event.type === 'command-failed') void api.notifications.error('Команда «' + event.action + '» не выполнена: ' + event.error)
+        if (event.type === 'command-failed') toast('error', 'Команда «' + event.action + '» не выполнена: ' + event.error)
       },
     })
     api.setInterval(() => { void controller.tick() }, PUBLISH_CHECK_MS)

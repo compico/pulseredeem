@@ -9,7 +9,7 @@ const qsnap = (idx, id) => ({ currentIndex: idx, items: Array.from({ length: idx
 const ps = (trackId, pos, dur = 200, isPlaying = true) => ({ isPlaying, track: { id: trackId, durationMs: dur * 1000 }, progress: { position: pos, duration: dur } });
 
 // Маленькая модель плагина OC: статусы и порядок выдачи как у настоящего.
-function setup({ items = [], addNext, startTimeoutMs, trackCompletion, playerSnap, adoptFail } = {}) {
+function setup({ items = [], addNext, startTimeoutMs, trackCompletion, playerSnap, adoptFail, canInsert } = {}) {
   const s = { plugin: items.map(i => ({ ...i, status: i.invalid ? 'queued' : 'queued' })), calls: [], inserted: [], events: [], t: 0, netDown: false, reportErr: null, lastReason: {},
     snap: { currentIndex: 0, items: [{ id: 'cur' }] }, player: playerSnap ?? ps('cur', 10) };
   const find = id => s.plugin.find(i => i.id === id);
@@ -25,7 +25,7 @@ function setup({ items = [], addNext, startTimeoutMs, trackCompletion, playerSna
     async failed(id, reason) { s.calls.push('failed:' + id); s.lastReason[id] = reason; if (s.reportErr) throw s.reportErr; find(id).status = 'failed'; },
     async playing() { s.calls.push('playing'); if (adoptFail && s.adoptDown) throw new OcError('down'); return s.plugin.filter(i => i.status === 'playing'); },
   };
-  const player = { snapshot: () => s.snap, playerSnapshot: () => s.player, addNext: addNext ? (...a) => addNext(s, ...a) : async (t, a) => { s.inserted.push([t, a]); } };
+  const player = { snapshot: () => s.snap, playerSnapshot: () => s.player, ...(canInsert ? { canInsert: () => s.ready } : {}), addNext: addNext ? (...a) => addNext(s, ...a) : async (t, a) => { s.inserted.push([t, a]); } };
   s.d = createDispatcher({ client, player, now: () => s.t, startTimeoutMs, trackCompletion, notify: e => s.events.push(e) });
   s.status = id => find(id).status;
   return s;
@@ -250,4 +250,28 @@ test('without player state the reward is committed on start (old behaviour)', as
   await s.d.observe(qsnap(1, '10'));
   assert.equal(s.status(1), 'played');
   assert.equal(s.d.status().playingId, null);
+});
+
+test('nothing is fetched or inserted while the player has no loaded track', async () => {
+  const s = setup({ items: [item(1)], canInsert: true });
+  s.ready = false;
+  await s.d.tick(); await s.d.tick();
+  assert.ok(!s.calls.includes('next'), 'заявка остаётся в очереди OC, а не «отдана»');
+  assert.equal(s.inserted.length, 0);
+  assert.equal(s.status(1), 'queued');
+  assert.equal(s.d.status().waitingForPlayer, true);
+  s.ready = true;
+  await s.d.tick();
+  assert.equal(s.inserted.length, 1);
+  assert.equal(s.d.status().waitingForPlayer, false);
+});
+
+test('adoption and confirmations still work while the player is idle', async () => {
+  const s = setup({ items: [item(1)], canInsert: true, playerSnap: ps('10', 198) });
+  s.ready = false;
+  s.plugin[0].status = 'playing';
+  await s.d.tick();
+  assert.equal(s.d.status().playingId, 1);
+  await s.d.observePlayer(ps('10', 198));
+  assert.equal(s.status(1), 'played', 'возврат/выполнение награды не зависит от готовности вставки');
 });
