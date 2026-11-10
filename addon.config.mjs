@@ -3,7 +3,7 @@ const addonConfig = {
   directoryName: 'pulseredeem',
   name: 'PulseRedeem',
   description: 'Заявки на треки из Overlay Composer → очередь PulseSync: берёт заявки у плагина music и ставит трек следующим.',
-  version: '0.7.3',
+  version: '0.7.4',
   author: 'compico',
   image: '',
   banner: '',

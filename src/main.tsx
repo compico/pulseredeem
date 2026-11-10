@@ -103,6 +103,8 @@ export default defineAddon({
         : s.phase === 'waiting' ? 'заявка #' + s.activeId + ' ждёт своей очереди в плеере'
         : s.connected ? 'связь есть, заявок нет' : 'проверяю связь…'
       toast('info', 'PulseRedeem: ' + line, { durationMs: 6000 })
+      // Одна JSON-строка в консоль: ПКМ по ней → Copy string contents. Работает и тогда, когда глобальный объект недоступен.
+      api.logger.info('PULSEREDEEM_DUMP ' + debug.dump())
     }
 
     const unsubscribe = typeof api.client.onQueueChange === 'function'
@@ -159,14 +161,18 @@ export default defineAddon({
       stop: () => { if (watchTimer) clearInterval(watchTimer); watchTimer = null; return 'watch stopped' },
     }
     let watchTimer: ReturnType<typeof setInterval> | null = null
-    ;(window as unknown as { __pulseredeem?: typeof debug }).__pulseredeem = debug
+    for (const root of [globalThis, window, window.top].filter(Boolean) as object[]) {
+      try { (root as { __pulseredeem?: typeof debug }).__pulseredeem = debug } catch { /* чужой origin */ }
+    }
 
     void dispatcher.tick()
     api.setInterval(() => { void dispatcher.tick() }, POLL_MS)
 
     return () => {
       debug.stop()
-      delete (window as unknown as { __pulseredeem?: unknown }).__pulseredeem
+      for (const root of [globalThis, window, window.top].filter(Boolean) as object[]) {
+        try { delete (root as { __pulseredeem?: unknown }).__pulseredeem } catch { /* чужой origin */ }
+      }
       dispatcher.stop()
       controller.stop()
       publisher?.stop()
