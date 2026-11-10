@@ -11,6 +11,27 @@ const POLL_MS = 3000
 const PUBLISH_CHECK_MS = 1000
 const OC_HINT = 'Проверьте, что Overlay Composer запущен, плагин «Заявки на треки» установлен и ему выданы разрешения.'
 
+// JSON без циклов и гигантов: обрезает глубину, длинные строки и массивы, чтобы строку можно было скопировать целиком.
+function safeJson(value: unknown): string {
+  const seen = new WeakSet<object>()
+  const walk = (v: unknown, depth: number): unknown => {
+    if (typeof v === 'string') return v.length > 200 ? v.slice(0, 200) + '…' : v
+    if (typeof v === 'function') return '[function]'
+    if (v === null || typeof v !== 'object') return v
+    if (seen.has(v)) return '[circular]'
+    if (depth <= 0) return Array.isArray(v) ? '[array ' + v.length + ']' : '[object]'
+    seen.add(v)
+    if (Array.isArray(v)) return v.slice(0, 12).map(x => walk(x, depth - 1)).concat(v.length > 12 ? ['…+' + (v.length - 12)] : [])
+    const out: Record<string, unknown> = {}
+    for (const key of Object.keys(v).slice(0, 40)) out[key] = walk((v as Record<string, unknown>)[key], depth - 1)
+    return out
+  }
+  return JSON.stringify(walk(value, 5))
+}
+function safeTry(fn: () => unknown): unknown {
+  try { return fn() } catch (error) { return 'ошибка: ' + (error instanceof Error ? error.message : String(error)) }
+}
+
 let showStatus: (() => void) | null = null
 
 function StatusButton() {
@@ -119,10 +140,33 @@ export default defineAddon({
     })
     api.setInterval(() => { void controller.tick() }, PUBLISH_CHECK_MS)
 
+    // Отладка из консоли devtools: copy(__pulseredeem.dump()) копирует состояние плеера и очереди одной JSON-строкой.
+    const debug = {
+      dump: () => safeJson({
+        version: addonConfig.version,
+        blocker: player.insertBlocker(),
+        dispatcher: dispatcher.status(),
+        ...player.diagnostics(),
+        rawPlayer: safeTry(() => api.client.getPlayerSnapshot()),
+        rawQueue: safeTry(() => api.client.getQueueSnapshot()),
+      }),
+      // Раз в periodMs пишет в лог короткую строку состояния; remember: debug.stop().
+      watch: (periodMs = 2000) => {
+        debug.stop()
+        watchTimer = setInterval(() => api.logger.info('watch', safeJson({ blocker: player.insertBlocker(), ...player.diagnostics(), d: dispatcher.status() })), Math.max(500, periodMs))
+        return 'watch started'
+      },
+      stop: () => { if (watchTimer) clearInterval(watchTimer); watchTimer = null; return 'watch stopped' },
+    }
+    let watchTimer: ReturnType<typeof setInterval> | null = null
+    ;(window as unknown as { __pulseredeem?: typeof debug }).__pulseredeem = debug
+
     void dispatcher.tick()
     api.setInterval(() => { void dispatcher.tick() }, POLL_MS)
 
     return () => {
+      debug.stop()
+      delete (window as unknown as { __pulseredeem?: unknown }).__pulseredeem
       dispatcher.stop()
       controller.stop()
       publisher?.stop()
