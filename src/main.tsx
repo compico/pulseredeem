@@ -11,6 +11,27 @@ const POLL_MS = 3000
 const PUBLISH_CHECK_MS = 1000
 const OC_HINT = 'Проверьте, что Overlay Composer запущен, плагин «Заявки на треки» установлен и ему выданы разрешения.'
 
+// JSON без циклов и гигантов: обрезает глубину, длинные строки и массивы, чтобы строку можно было скопировать целиком.
+function safeJson(value: unknown): string {
+  const seen = new WeakSet<object>()
+  const walk = (v: unknown, depth: number): unknown => {
+    if (typeof v === 'string') return v.length > 200 ? v.slice(0, 200) + '…' : v
+    if (typeof v === 'function') return '[function]'
+    if (v === null || typeof v !== 'object') return v
+    if (seen.has(v)) return '[circular]'
+    if (depth <= 0) return Array.isArray(v) ? '[array ' + v.length + ']' : '[object]'
+    seen.add(v)
+    if (Array.isArray(v)) return v.slice(0, 12).map(x => walk(x, depth - 1)).concat(v.length > 12 ? ['…+' + (v.length - 12)] : [])
+    const out: Record<string, unknown> = {}
+    for (const key of Object.keys(v).slice(0, 40)) out[key] = walk((v as Record<string, unknown>)[key], depth - 1)
+    return out
+  }
+  return JSON.stringify(walk(value, 5))
+}
+async function safeTry(fn: () => Promise<unknown>): Promise<unknown> {
+  try { return await fn() } catch (error) { return 'ошибка: ' + (error instanceof Error ? error.message : String(error)) }
+}
+
 let showStatus: (() => void) | null = null
 
 function StatusButton() {
@@ -82,6 +103,8 @@ export default defineAddon({
         : s.phase === 'waiting' ? 'заявка #' + s.activeId + ' ждёт своей очереди в плеере'
         : s.connected ? 'связь есть, заявок нет' : 'проверяю связь…'
       toast('info', 'PulseRedeem: ' + line, { durationMs: 6000 })
+      // Одна JSON-строка в консоль: ПКМ по ней → Copy string contents. Работает и тогда, когда глобальный объект недоступен.
+      void debug.dump().then(text => api.logger.info('PULSEREDEEM_DUMP ' + text))
     }
 
     const unsubscribe = typeof api.client.onQueueChange === 'function'
@@ -95,15 +118,15 @@ export default defineAddon({
     if (player.hasPlayerState) {
       publisher = createNowPlayingPublisher({ client, player, log: api.logger })
       // Снимок читаем сами: аргумент слушателя в SDK не документирован. Позицию играющей заявки проверяем и по событиям, и по таймеру.
-      const onPlayer = () => {
+      const onPlayer = async () => {
         let snapshot: unknown
-        try { snapshot = player.playerSnapshot() } catch { return }
+        try { snapshot = await player.playerSnapshot() } catch { return }
         void publisher?.update(snapshot)
         void dispatcher.observePlayer(snapshot)
       }
-      unsubscribePlayer = player.onPlayerChange(onPlayer)
-      onPlayer()
-      api.setInterval(onPlayer, PUBLISH_CHECK_MS)
+      unsubscribePlayer = player.onPlayerChange(() => { void onPlayer() })
+      void onPlayer()
+      api.setInterval(() => { void onPlayer() }, PUBLISH_CHECK_MS)
     } else {
       api.logger.warn('getPlayerSnapshot недоступен: виджет не увидит текущий трек, а награда выполняется на старте трека, а не по окончании')
     }
@@ -119,10 +142,45 @@ export default defineAddon({
     })
     api.setInterval(() => { void controller.tick() }, PUBLISH_CHECK_MS)
 
+    // Отладка из консоли devtools: copy(__pulseredeem.dump()) копирует состояние плеера и очереди одной JSON-строкой.
+    const debug = {
+      dump: async () => safeJson({
+        version: addonConfig.version,
+        blocker: await player.insertBlocker(),
+        dispatcher: dispatcher.status(),
+        ...(await player.diagnostics()),
+        rawPlayer: await safeTry(async () => await api.client.getPlayerSnapshot()),
+        rawQueue: await safeTry(async () => await api.client.getQueueSnapshot()),
+        // Старые методы SDK: вдруг снимки пусты, а состояние плеера доступно другим путём.
+        getState: await safeTry(async () => await api.client.getState()),
+        getCurrentTrack: await safeTry(async () => await api.client.getCurrentTrack()),
+        getQueue: await safeTry(async () => await api.client.getQueue()),
+        getProgress: await safeTry(async () => await api.client.getProgress()),
+        getDuration: await safeTry(async () => await api.client.getDuration()),
+        methods: Object.keys(api.client).slice(0, 80),
+        at: new Date().toISOString(),
+      }),
+      // Раз в periodMs пишет в лог короткую строку состояния; remember: debug.stop().
+      watch: (periodMs = 2000) => {
+        debug.stop()
+        watchTimer = setInterval(() => { void (async () => api.logger.info('watch', safeJson({ blocker: await player.insertBlocker(), ...(await player.diagnostics()), d: dispatcher.status() })))() }, Math.max(500, periodMs))
+        return 'watch started'
+      },
+      stop: () => { if (watchTimer) clearInterval(watchTimer); watchTimer = null; return 'watch stopped' },
+    }
+    let watchTimer: ReturnType<typeof setInterval> | null = null
+    for (const root of [globalThis, window, window.top].filter(Boolean) as object[]) {
+      try { (root as { __pulseredeem?: typeof debug }).__pulseredeem = debug } catch { /* чужой origin */ }
+    }
+
     void dispatcher.tick()
     api.setInterval(() => { void dispatcher.tick() }, POLL_MS)
 
     return () => {
+      debug.stop()
+      for (const root of [globalThis, window, window.top].filter(Boolean) as object[]) {
+        try { delete (root as { __pulseredeem?: unknown }).__pulseredeem } catch { /* чужой origin */ }
+      }
       dispatcher.stop()
       controller.stop()
       publisher?.stop()

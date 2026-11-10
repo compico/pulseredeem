@@ -89,7 +89,7 @@ export function createNowPlayingPublisher({ client, player, now = Date.now, hear
   async function update(snapshot) {
     if (stopped || inflight) return;
     if (snapshot === undefined) {
-      try { snapshot = player.playerSnapshot(); } catch (error) {
+      try { snapshot = await player.playerSnapshot(); } catch (error) {
         logger.warn('Не удалось прочитать состояние плеера', error instanceof Error ? error.message : error);
         return;
       }
@@ -97,7 +97,7 @@ export function createNowPlayingPublisher({ client, player, now = Date.now, hear
     const body = toNowPlaying(snapshot);
     if (!body && snapshot?.track && !warnedUnusable) {
       warnedUnusable = true;
-      logger.warn('Трек плеера без пригодного id: виджет увидит «ничего не играет»', typeof player.diagnostics === 'function' ? player.diagnostics() : undefined);
+      logger.warn('Трек плеера без пригодного id: виджет увидит «ничего не играет»', typeof player.diagnostics === 'function' ? await player.diagnostics() : undefined);
     }
     if (body) warnedUnusable = false;
     const key = body ? body.trackId : '';
