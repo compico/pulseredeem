@@ -151,6 +151,14 @@ export default defineAddon({
         ...player.diagnostics(),
         rawPlayer: safeTry(() => api.client.getPlayerSnapshot()),
         rawQueue: safeTry(() => api.client.getQueueSnapshot()),
+        // Старые методы SDK: вдруг снимки пусты, а состояние плеера доступно другим путём.
+        getState: safeTry(() => api.client.getState()),
+        getCurrentTrack: safeTry(() => api.client.getCurrentTrack()),
+        getQueue: safeTry(() => api.client.getQueue()),
+        getProgress: safeTry(() => api.client.getProgress()),
+        getDuration: safeTry(() => api.client.getDuration()),
+        methods: Object.keys(api.client).slice(0, 80),
+        at: new Date().toISOString(),
       }),
       // Раз в periodMs пишет в лог короткую строку состояния; remember: debug.stop().
       watch: (periodMs = 2000) => {
