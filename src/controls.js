@@ -1,7 +1,7 @@
 // Исполнение команд пульта (пауза, пропуск…). Плагин OC держит короткую очередь команд; о новой команде аддон узнаёт по событию (или, пока канала событий нет, опрашивает раз в секунду).
 // Команда подтверждается в OC ДО исполнения: исполнится не более одного раза (двойной пропуск хуже потерянного).
 
-export function createController({ client, player, notify = () => {}, log = {} }) {
+export function createController({ client, player, notify = () => {}, log = {}, onCommand = async () => {} }) {
   const logger = { warn() {}, error() {}, ...log };
   let stopped = false;
   let busy = false;
@@ -24,6 +24,7 @@ export function createController({ client, player, notify = () => {}, log = {} }
         if (stopped) return;
         try { await client.commandDone(command.id); } catch { continue; } // не приняли — не исполняем, повторим на следующем опросе
         try {
+          try { await onCommand(command); } catch { /* журнал не должен мешать команде */ } // до исполнения, пока состояние плеера ещё прежнее
           await player.control(command.action);
           notify({ type: 'command', action: command.action });
         } catch (error) {
