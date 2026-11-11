@@ -4,10 +4,11 @@ import { createController } from './controls.js'
 import { createDispatcher } from './dispatcher.js'
 import { createNowPlayingPublisher } from './nowplaying.js'
 import { createOcClient, DEFAULT_BASE_URL } from './oc-client.js'
+import { createOcEvents, wsUrl } from './oc-events.js'
 import { createPlayer } from './player.js'
 
 const POLL_MS = 3000
-// Раз в секунду: опрос команд пульта, позиция играющей заявки и проверка публикатора состояния (он сам решает, слать ли).
+// Раз в секунду: позиция играющей заявки и проверка публикатора состояния (он сам решает, слать ли).
 const PUBLISH_CHECK_MS = 1000
 const OC_HINT = 'Проверьте, что Overlay Composer запущен, плагин «Заявки на треки» установлен и ему выданы разрешения.'
 
@@ -67,11 +68,16 @@ export default defineAddon({
       return
     }
 
+    // Канал событий OC (WebSocket). Пока он открыт, заявки и команды приходят событиями, а OC не опрашивается;
+    // без канала (или пока он не подключился) работает прежний опрос.
+    let events: ReturnType<typeof createOcEvents> | null = null
+    const channelOpen = () => events?.isOpen() === true
     const client = createOcClient({ fetch: api.net.fetch.bind(api.net), baseUrl: DEFAULT_BASE_URL, signal: api.signal })
     const dispatcher = createDispatcher({
       client,
       player,
       trackCompletion: player.hasPlayerState,
+      shouldPoll: () => !channelOpen(),
       log: api.logger,
       notify: event => {
         if (event.type === 'connection') {
@@ -140,12 +146,29 @@ export default defineAddon({
         if (event.type === 'command-failed') toast('error', 'Команда «' + event.action + '» не выполнена: ' + event.error)
       },
     })
-    api.setInterval(() => { void controller.tick() }, PUBLISH_CHECK_MS)
+    api.setInterval(() => { if (!channelOpen()) void controller.tick() }, PUBLISH_CHECK_MS)
+    events = createOcEvents({
+      url: wsUrl(DEFAULT_BASE_URL),
+      topics: ['queue', 'commands'],
+      log: api.logger,
+      onEvent: topic => {
+        if (topic === 'queue') void dispatcher.hint()
+        else if (topic === 'commands') void controller.tick()
+      },
+      // События, пришедшие без связи, потеряны: при подключении один раз читаем состояние обычными запросами.
+      onOpen: () => {
+        api.logger.info('Канал событий OC подключён: опрос отключён')
+        void dispatcher.hint()
+        void controller.tick()
+      },
+      onClose: () => api.logger.warn('Канал событий OC потерян: пока он не вернётся, работает опрос'),
+    })
 
     // Отладка из консоли devtools: copy(__pulseredeem.dump()) копирует состояние плеера и очереди одной JSON-строкой.
     const debug = {
       dump: async () => safeJson({
         version: addonConfig.version,
+        eventsOpen: channelOpen(),
         blocker: await player.insertBlocker(),
         dispatcher: dispatcher.status(),
         ...(await player.diagnostics()),
@@ -181,6 +204,7 @@ export default defineAddon({
       for (const root of [globalThis, window, window.top].filter(Boolean) as object[]) {
         try { delete (root as { __pulseredeem?: unknown }).__pulseredeem } catch { /* чужой origin */ }
       }
+      events?.stop()
       dispatcher.stop()
       controller.stop()
       publisher?.stop()

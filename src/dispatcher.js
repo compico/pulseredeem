@@ -32,7 +32,7 @@ const message = error => (error instanceof Error ? error.message : String(error)
  * trackCompletion=false — у PulseSync нет API состояния плеера: следить за доигрыванием нечем,
  * и награда выполняется на старте трека, как раньше.
  */
-export function createDispatcher({ client, player, now = Date.now, startTimeoutMs = START_TIMEOUT_MS, trackCompletion = true, notify = () => {}, log = {} }) {
+export function createDispatcher({ client, player, now = Date.now, startTimeoutMs = START_TIMEOUT_MS, trackCompletion = true, shouldPoll = () => true, notify = () => {}, log = {} }) {
   const logger = { info() {}, warn() {}, error() {}, ...log };
   let stopped = false;
   let busy = false;
@@ -45,6 +45,9 @@ export function createDispatcher({ client, player, now = Date.now, startTimeoutM
   let lastError = '';
   let waitingForPlayer = false;
   let lastBlocker = null;
+  // OC спрашиваем только когда есть повод: старт, переподключение, событие «очередь изменилась», либо нет канала событий (shouldPoll).
+  // Когда OC ответил «заявок нет», новых заявок до следующего события не ждём.
+  let wantNext = true;
   // Без метода canInsert (в тестах, в старых адаптерах) считаем, что вставлять можно.
   const canInsert = async () => (typeof player.canInsert === 'function' ? await player.canInsert() : true);
 
@@ -218,6 +221,7 @@ export function createDispatcher({ client, player, now = Date.now, startTimeoutM
         return;
       }
       lastBlocker = null;
+      if (!wantNext && !shouldPoll()) return;
       let next;
       try {
         next = await client.next();
@@ -226,7 +230,8 @@ export function createDispatcher({ client, player, now = Date.now, startTimeoutM
         setConnected(false, error);
         return;
       }
-      if (stopped || !next.item) return;
+      if (stopped) return;
+      if (!next.item) { wantNext = false; return; }
       await insert(next.item);
       await flush();
     } catch (error) {
@@ -279,8 +284,15 @@ export function createDispatcher({ client, player, now = Date.now, startTimeoutM
     return Promise.resolve();
   }
 
+  /** В OC могли появиться заявки (событие очереди, переподключение): следующий tick спросит /next. */
+  function hint() {
+    wantNext = true;
+    return tick();
+  }
+
   return {
     tick,
+    hint,
     observe,
     observePlayer,
     stop() { stopped = true; },
