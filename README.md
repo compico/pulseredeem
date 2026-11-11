@@ -56,7 +56,8 @@
 | `src/nowplaying.js` | снимок плеера → `POST /nowplaying`, когда и что слать |
 | `src/controls.js` | исполнение команд пульта |
 | `src/player.js` | адаптер над `api.client` PulseSync |
-| `src/main.tsx` | подключение к PulseSync: опрос, уведомления, кнопка статуса |
+| `src/main.tsx` | подключение к PulseSync: события OC, уведомления, кнопка статуса |
+| `src/oc-events.js` | канал событий OC (WebSocket `/plugins/music/ws`) с переподключением |
 
 Логика (`oc-client`, `dispatcher`, `player`) не зависит от SDK и проверяется обычным `npm test`.
 

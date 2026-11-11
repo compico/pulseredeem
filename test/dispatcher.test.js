@@ -324,3 +324,30 @@ test('start is confirmed by the player when the wave queue index does not move',
   assert.equal(s.status(1), 'playing');
   assert.ok(s.calls.includes('started:1'));
 });
+
+test('shouldPoll=false: OC опрашивается только по поводу (старт, hint), а не каждый tick', async () => {
+  const calls = [];
+  let items = [];
+  const client = {
+    async next() { calls.push('next'); return { item: items.shift() ?? null, resend: false }; },
+    async started() {}, async played() {}, async failed() {}, async playing() { return []; },
+  };
+  const player = { snapshot: () => ({ currentIndex: 0, items: [{ id: 'cur' }] }), playerSnapshot: () => ps('cur', 10), addNext: async () => {} };
+  const d = createDispatcher({ client, player, shouldPoll: () => false });
+  await d.tick(); // старт: один запрос, заявок нет
+  await d.tick(); await d.tick();
+  assert.deepEqual(calls, ['next'], 'после «заявок нет» OC больше не спрашиваем');
+  await d.hint(); // событие «очередь изменилась»
+  assert.deepEqual(calls, ['next', 'next']);
+  await d.tick();
+  assert.equal(calls.length, 2);
+});
+
+test('shouldPoll=true (канала событий нет): опрос как раньше', async () => {
+  let n = 0;
+  const client = { async next() { n++; return { item: null, resend: false }; }, async started() {}, async played() {}, async failed() {}, async playing() { return []; } };
+  const player = { snapshot: () => ({ currentIndex: 0, items: [{ id: 'cur' }] }), playerSnapshot: () => ps('cur', 10), addNext: async () => {} };
+  const d = createDispatcher({ client, player, shouldPoll: () => true });
+  await d.tick(); await d.tick(); await d.tick();
+  assert.equal(n, 3);
+});
