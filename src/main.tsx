@@ -6,6 +6,7 @@ import { createNowPlayingPublisher } from './nowplaying.js'
 import { createOcClient, DEFAULT_BASE_URL } from './oc-client.js'
 import { createOcEvents, wsUrl } from './oc-events.js'
 import { createPlayer } from './player.js'
+import { createTracer } from './tracer.js'
 
 const POLL_MS = 3000
 // Раз в секунду: позиция играющей заявки и проверка публикатора состояния (он сам решает, слать ли).
@@ -101,6 +102,14 @@ export default defineAddon({
       },
     })
 
+    // Журнал смены треков и команд пульта: помогает понять, почему трек пропустился.
+    const tracer = createTracer({
+      log: api.logger,
+      queue: async () => await api.client.getQueueSnapshot(),
+      owns: id => dispatcher.owns(id),
+      status: () => dispatcher.status(),
+    })
+
     showStatus = () => {
       const s = dispatcher.status()
       const line = s.connected === false ? 'нет связи с Overlay Composer: ' + s.lastError
@@ -128,6 +137,7 @@ export default defineAddon({
         let snapshot: unknown
         try { snapshot = await player.playerSnapshot() } catch { return }
         void publisher?.update(snapshot)
+        void tracer.observe(snapshot)
         void dispatcher.observePlayer(snapshot)
       }
       unsubscribePlayer = player.onPlayerChange(() => { void onPlayer() })
@@ -142,6 +152,7 @@ export default defineAddon({
       client,
       player,
       log: api.logger,
+      onCommand: command => tracer.noteCommand(command),
       notify: event => {
         if (event.type === 'command-failed') toast('error', 'Команда «' + event.action + '» не выполнена: ' + event.error)
       },

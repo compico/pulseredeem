@@ -94,7 +94,10 @@ export function createDispatcher({ client, player, now = Date.now, startTimeoutM
     const { item, durationMs, positionMs } = playing;
     playing = null;
     if (durationMs > 0 && durationMs - positionMs <= endTolerance(durationMs)) report('played', item);
-    else report('failed', item, 'трек пропущен');
+    else {
+      logger.warn('Заявка не доиграна: трек пропущен', { id: item.id, trackId: item.trackId, positionMs, durationMs, toleranceMs: durationMs > 0 ? endTolerance(durationMs) : null });
+      report('failed', item, 'трек пропущен');
+    }
   }
 
   function onStarted(item) {
@@ -284,6 +287,13 @@ export function createDispatcher({ client, player, now = Date.now, startTimeoutM
     return Promise.resolve();
   }
 
+  /** Чья это заявка: трек, который аддон вставил (waiting) или который играет по заявке (playing). Для журнала. */
+  function owns(trackId) {
+    if (playing?.item.trackId === trackId) return { request: playing.item.id, user: playing.item.user, state: 'playing' };
+    if (active?.item.trackId === trackId) return { request: active.item.id, user: active.item.user, state: 'waiting' };
+    return null;
+  }
+
   /** В OC могли появиться заявки (событие очереди, переподключение): следующий tick спросит /next. */
   function hint() {
     wantNext = true;
@@ -293,6 +303,7 @@ export function createDispatcher({ client, player, now = Date.now, startTimeoutM
   return {
     tick,
     hint,
+    owns,
     observe,
     observePlayer,
     stop() { stopped = true; },
